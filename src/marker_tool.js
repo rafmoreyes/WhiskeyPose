@@ -33,7 +33,8 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
       item.position.fromArray(positions[key]);
       const color = key === selected ? 0xffcd7c : (confirmed[key] ? 0x78d4ac : 0x5abfe7);
       item.material.color.setHex(color);
-      item.scale.setScalar(key === selected ? 1.35 : 1);
+      item.scale.setScalar(key === selected ? 1.12 : .78);
+      item.children[0].visible = key === selected;
       item.children[0].position.set(0, radius * (key === selected ? 2.65 : 2.4), 0);
       item.children[0].material.color.setHex(color);
     }
@@ -77,7 +78,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     const texture=new THREE.CanvasTexture(canvas);
     const material=new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false});
     const sprite=new THREE.Sprite(material);
-    sprite.scale.set(radius*10,radius*2.4,1);
+    sprite.scale.set(radius*7,radius*1.65,1);
     sprite.renderOrder=201;
     return sprite;
   }
@@ -130,7 +131,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     if(!model){bounds=null; positions={};confirmed={};layer.visible=false;return;}
     model.updateWorldMatrix(true,true);
     bounds=new THREE.Box3().setFromObject(model);
-    radius=Math.max(bounds.getSize(new THREE.Vector3()).y*.012,0.005);
+    radius=Math.max(bounds.getSize(new THREE.Vector3()).y*.009,0.004);
     layer.visible=active; suggest();
   }
   function setActive(value) {active=Boolean(value);layer.visible=active && Boolean(model);if(!active){dragging=null;controls.enabled=true;}}

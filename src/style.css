@@ -59,3 +59,9 @@
 .skeleton-review.approved{background:#21332b;border-color:#56836a}
 .skeleton-review.approved strong{color:#9fe2bd}
 .skeleton-review .full-button{margin-top:2px}
+
+/* Alpha 0.3 — Smart Skin Envelopes: compact controls, no weight-paint UI. */
+.envelope-slider{width:100%;margin:5px 0 25px;accent-color:#e0aa69;cursor:ew-resize}
+.envelope-show{display:flex;gap:9px;align-items:center;color:#b5bebd;font-size:11px;margin:2px 0 17px}
+.envelope-show input{accent-color:#dba767}
+.field-label strong{color:#efbd79;float:right;font-size:11px}

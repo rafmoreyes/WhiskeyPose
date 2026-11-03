@@ -4,18 +4,36 @@
 
 WhiskeyPose is a small, FBX-first web application. The eventual goal is to import an unrigged character, automatically create a skeleton and skin weights, edit a pose, and export a usable FBX without a heavyweight DCC workflow.
 
-## Current version — Alpha 0.2.2 (marker-driven Auto-Rig pilot)
+## Current version — Alpha 0.3.0 (Smart Skin Envelopes pilot)
 
 **Implemented:**
 - Import/inspect `.fbx` models in the browser, with viewport orbit/pan/zoom, framing, grid, wireframe and bone visualization.
 - **Auto-Rig + Auto-Skin** for upright, roughly symmetric humanoids in T/A pose **without an existing rig**, via local Blender worker.
-  - Generate a **19-bone humanoid template** from **13 user-confirmed markers** (shoulders, ankles, hand ends and head top inferred).
+  - Generate a **19-bone humanoid template** from **16 user-confirmed markers** (shoulders, ankles, hand ends and head top inferred).
   - Use Blender's **bone-heat automatic weights** when possible; if it fails or leaves unweighted vertices, calculate normalized nearest-bone proximity weights (4 influences maximum).
   - Return a new skinned `.fbx` to the browser, render it for inspection and enable a **Download Rigged FBX** button.
 - Inspect generated bones and skinned meshes and rotate bones to test skin deformations.
 - Experimental FBX round-trip export for existing rigs and pose JSON saving (pose transfer is not fully validated).
 
 **Known limitations:** This Auto-Rig is procedural and **NOT powered by TokenRig/UniRig AI**. Some bones are inferred from user markers and mesh bounds; placement can be inaccurate for large heads, asymmetry, unusual limbs, wings, tails, props and loose clothing. No IK, reliable pose export, topology-aware weight editor, anatomy detection, or guaranteed Unreal-ready result yet. Always verify deformation and scale in Blender before production use.
+
+## Alpha 0.3.0 — Smart Skin Envelopes (experimental)
+
+**Why:** control the volumes that generate weights, instead of manually painting weights on vertices. The 16-marker skeleton workflow remains unchanged.
+
+1. Import an unrigged FBX and confirm all **16 markers** in **Rig**.
+2. Enable Skeleton Preview and **Approve skeleton**.
+3. Open **Skin**. WhiskeyPose creates one capsule envelope for each **19-bone** deform skeleton, auto-fitted using sampled geometry.
+4. Select an **Envelope Owner** (bone), adjust its **Radius** and choose **Smooth** or **Rigid**. The selected capsule is shown; **Show all envelopes** reveals the rest.
+5. Use **Envelope Skin** and **Generate Rig + Envelope Skin**. The local Blender Worker turns these envelope parameters into actual vertex groups in exported FBX.
+6. The Skin tab reports how many vertices fell outside every capsule and were assigned to a nearest bone. You can edit radius and choose **Rebuild Skin from Source FBX** without repeating marker placement.
+7. **Blender Auto Weights — legacy** remains an alternate method for comparing results. This mode ignores envelope adjustments.
+
+This is a pilot, **not** learned AI, topology-aware Smart Skin, or a manual Weight Paint editor. Smooth blends overlapping capsules with at most four influences; Rigid chooses one nearby rigid bone. Loose clothes, detached props, or nearby limbs may still be assigned incorrectly. Rebuilding is required after changing envelopes; the viewport does not update skin weights live.
+
+**Validation:** automated envelope, mock Blender vertex-group, marker-regression and HTTP worker tests are included. Real FBX export/deformation and Steam Blender have not been validated in this execution environment. Verify shoulder, elbow, knee, clothes, normals, scale and accessories in your own files.
+
+**No new dependencies:** continues to use Three.js, Vite, Python, and the local Blender Worker. The one-click `Iniciar-WhiskeyPose.bat` and Steam Blender installation selector are preserved. Close old Worker/Vite windows before starting the updated version.
 
 ## Run on Windows 11
 
@@ -24,7 +42,7 @@ Requirements: **Node.js 20.19+** and a modern browser. To use Auto-Rig and FBX e
 1. Clone this repository with `git clone https://github.com/rafmoreyes/WhiskeyPose.git` (one time), or run `git pull` inside an existing clone.
 2. Double-click `start-whiskeypose.cmd`. It runs `npm install` on first use, then starts the UI at `http://127.0.0.1:5173`.
 3. In **a second CMD window**, double-click `start-worker.cmd`. Keep both terminals open.
-4. Drop an unrigged humanoid `.fbx` (T/A pose) into the viewport, switch to **Rig**, place **13 markers**, select **Confirm all**, then click **Generate Rig + Skin from 13 markers**.
+4. Drop an unrigged humanoid `.fbx` (T/A pose) into the viewport, switch to **Rig**, place **16 markers**, select **Confirm all**, then approve the skeleton and click **Generate Rig + Envelope Skin**.
 5. When it finishes, inspect bones in **Rig** and bend joints in **Pose**; use **Download Rigged FBX** to save the result.
 
 Alternative using a terminal:

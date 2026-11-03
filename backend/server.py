@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 
 from marker_rig import validate_payload
+from envelope_skin import validate_envelopes
 from blender_engine import (active_blender, browse_blender, discover_blenders,
                             read_config, save_path, test_blender)
 
@@ -52,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
             blender = active_blender()
             self.reply_json(200, {
                 'service': 'whiskeypose-local-worker',
-                'version': '0.2.2',
+                'version': '0.3.0',
                 'blenderAvailable': bool(blender),
                 'blenderPath': blender['path'] if blender else None,
                 'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(blender),
@@ -158,9 +159,15 @@ class Handler(BaseHTTPRequestHandler):
                     marker_path = directory / 'markers.json'
                     marker_path.write_text(json.dumps(landmarks), encoding='utf-8')
                     method = payload.get('method', 'auto')
-                    if method not in ('auto', 'proximity'):
+                    if method not in ('auto', 'proximity', 'envelope'):
                         self.reply_json(400, {'error': 'Unsupported weight method.'}); return
                     command = [blender, '--background', '--factory-startup', '--python', str(AUTORIG_SCRIPT), '--', '--input', str(source), '--output', str(target), '--report', str(report), '--method', method, '--markers', str(marker_path)]
+                    if method == 'envelope':
+                        names = ['pelvis','spine','chest','neck','head'] + [f'{segment}.{side}' for side in ('L','R') for segment in ('shoulder','upper_arm','forearm','hand','thigh','shin','foot')]
+                        validate_envelopes(payload.get('envelopes'), [{'name':name} for name in names])
+                        envelope_path = directory / 'envelopes.json'
+                        envelope_path.write_text(json.dumps(payload['envelopes']), encoding='utf-8')
+                        command += ['--envelopes', str(envelope_path)]
                 else:
                     pose = payload.get('pose')
                     if pose is not None and (not isinstance(pose, dict) or not isinstance(pose.get('bones'), list)):
@@ -196,5 +203,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     print(f'WhiskeyPose Blender worker: http://{HOST}:{PORT}')
     print('Blender:', find_blender() or 'NOT FOUND — set BLENDER_PATH')
-    print('Alpha 0.1.1 local rig/skin + Steam/standalone Blender selection.')
+    print('Alpha 0.3.0 envelope skin + 16-marker rig (experimental).')
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

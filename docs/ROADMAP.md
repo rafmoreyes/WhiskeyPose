@@ -95,3 +95,13 @@ Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime moca
 - [ ] Artist validation of UI and generated Blender FBX on real A-Pose/T-Pose models.
 - [ ] Blender/Unreal round-trip validation of vertex weights, axes and clothing deformation.
 - [ ] Future: expose hip pivots if pelvis width heuristics are insufficient.
+
+ 
+## Alpha 0.3.0 — Smart Skin Envelopes (experimental)
+
+- Bone-owned capsule envelopes auto-fit to sampled geometry, with Radius and Smooth/Rigid settings in Skin.
+- User adjustments are passed to the Blender Worker and become actual normalized vertex-group weights in FBX.
+- Existing Blender Auto Weights kept as a selectable fallback for comparison.
+- After generation, envelopes can be edited and weights rebuilt from the original FBX.
+- Fallback vertices outside all capsules are counted and reported.
+- Next: mesh-island ownership and exclusions, controlled deformation tests, then live weight feedback.

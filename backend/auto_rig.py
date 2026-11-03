@@ -1,4 +1,4 @@
-"""WhiskeyPose Alpha 0.1: FBX -> procedural humanoid rig -> weights -> FBX.
+"""WhiskeyPose Alpha 0.3: FBX -> procedural humanoid rig -> weights -> FBX.
 
 Launched inside Blender by the local loopback worker. Requires an upright,
 roughly symmetric humanoid in A/T pose. Output MUST be artist-reviewed.
@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bpy
 from rig_math import proximity_weights
 from marker_rig import make_marker_template
+from envelope_skin import validate_envelopes, envelope_weights
 
 
 def arguments():
@@ -21,7 +22,8 @@ def arguments():
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--report', required=True)
-    parser.add_argument('--method', choices=('auto', 'proximity'), default='auto')
+    parser.add_argument('--method', choices=('auto', 'proximity', 'envelope'), default='auto')
+    parser.add_argument('--envelopes')
     parser.add_argument('--markers', required=True)
     return parser.parse_args(args)
 
@@ -91,6 +93,28 @@ def assign_proximity(mesh, rig, definitions, height):
         modifier.object = rig
 
 
+def assign_envelopes(mesh, rig, definitions, height, config):
+    """Generate actual Blender vertex groups from user-controlled bone envelopes."""
+    remove_bone_groups(mesh, definitions)
+    groups = {b['name']: mesh.vertex_groups.new(name=b['name']) for b in definitions}
+    world = mesh.matrix_world.copy()
+    fallback_count = 0
+    for vert in mesh.data.vertices:
+        pos = tuple(world @ vert.co)
+        weights, used_fallback = envelope_weights(pos, definitions, config, height)
+        if used_fallback:
+            fallback_count += 1
+        for bone_name, weight in weights:
+            groups[bone_name].add([vert.index], weight, 'REPLACE')
+    old_world = mesh.matrix_world.copy()
+    mesh.parent = rig
+    mesh.matrix_world = old_world
+    if not any(m.type == 'ARMATURE' and m.object == rig for m in mesh.modifiers):
+        modifier = mesh.modifiers.new('WhiskeyPose Envelope Skin', 'ARMATURE')
+        modifier.object = rig
+    return fallback_count
+
+
 def try_bone_heat(mesh, rig, definitions):
     # Bone heat is Blender's native automatic weights, not an AI model.
     bpy.ops.object.select_all(action='DESELECT')
@@ -118,8 +142,19 @@ def main():
     marker_data=json.loads(Path(args.markers).read_text(encoding='utf-8'))
     definitions, dimensions = make_marker_template(get_bounds(meshes), marker_data)
     rig = create_armature(definitions)
+    envelope_config = None
+    if args.method == 'envelope':
+        if not args.envelopes:
+            raise RuntimeError('Envelope settings are required for envelope skinning')
+        envelope_config = validate_envelopes(json.loads(Path(args.envelopes).read_text(encoding='utf-8')), definitions)
     methods = []
     for mesh in meshes:
+        if envelope_config is not None:
+            fallback_count = assign_envelopes(mesh, rig, definitions, dimensions['height'], envelope_config)
+            methods.append({'mesh': mesh.name, 'weights': 'envelopes',
+                            'fallbackVertices': fallback_count,
+                            'totalVertices': len(mesh.data.vertices)})
+            continue
         success = args.method == 'auto' and try_bone_heat(mesh, rig, definitions)
         if not success:
             assign_proximity(mesh, rig, definitions, dimensions['height'])
@@ -138,7 +173,7 @@ def main():
         apply_unit_scale=True,
         mesh_smooth_type='OFF',
     )
-    report = {'version': '0.2.2', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Rig driven by confirmed landmarks; inferred shoulders/ankles/head remain approximate. Inspect the FBX orientation and skin deformations.']}
+    report = {'version': '0.3.0', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Rig driven by confirmed landmarks; inferred shoulders/ankles/head remain approximate. Inspect the FBX orientation and skin deformations.']}
     with open(args.report, 'w', encoding='utf-8') as handle:
         json.dump(report, handle)
     print('WhiskeyPose Alpha 0.1 output:', json.dumps(report))

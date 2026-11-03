@@ -4,6 +4,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './style.css';
 import { createMarkerTool } from './marker_tool.js';
 import { MARKER_DEFS } from './marker_math.js';
+import { buildSkeletonTemplate } from './skeleton_solver.js';
+import { fitEnvelopes, validateEnvelopeDraft } from './envelope_math.js';
+import { createEnvelopeTool } from './envelope_tool.js';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -13,7 +16,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.2.2 <span class="version-note">ANATOMY PREVIEW</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.0 <span class="version-note">SKIN ENVELOPES</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -76,7 +79,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 let notifyTimer;
 
 function notify(message, type = 'info') {
@@ -120,9 +123,18 @@ grid.material.opacity = 0.38; grid.material.transparent = true;
 scene.add(grid);
 
 // Alpha 0.2.2 marker positions and reviewed skeleton drive the Blender rigging pipeline.
+const envelopeTool = createEnvelopeTool(scene);
 const markerTool = createMarkerTool({
   scene, camera, renderer, controls, meshes: () => state.meshes,
-  onChange: (phase) => { if (phase !== 'drag' && state.activeTab === 'rig') renderPanel(); },
+  onChange: (phase) => {
+    if (!state.stats?.bones && (phase === 'update' || phase === 'reset')) {
+      state.envelopeConfig = null;
+      state.envelopeDefaults = null;
+      state.envelopeBones = null;
+      envelopeTool.clear();
+    }
+    if (phase !== 'drag' && state.activeTab === 'rig') renderPanel();
+  },
 });
 
 function resizeViewport() {
@@ -155,6 +167,7 @@ function frameModel() {
 
 function destroyModel() {
   markerTool.setModel(null);
+  envelopeTool.clear();
   if (state.skeletonHelper) { scene.remove(state.skeletonHelper); state.skeletonHelper.geometry?.dispose(); state.skeletonHelper = null; }
   if (state.model) {
     scene.remove(state.model);
@@ -199,6 +212,7 @@ async function importFBX(file, options = {}) {
     const {meshes, skinned, bones, stats} = readStats(fbx);
     if (!meshes.length) throw new Error('The FBX does not contain a displayable mesh.');
     destroyModel();
+    if (!options.generated && !options.keepEnvelope) { state.envelopeConfig = null; state.envelopeDefaults = null; state.envelopeBones = null; state.envelopeDirty = false; state.savedRigMarkers = null; }
     state.file = file; state.sourceFile = options.generated ? (state.sourceFile || file) : file; state.riggedFile = options.generated ? file : null; state.rigReport = options.report || null; state.model = fbx; state.meshes = meshes; state.skinnedMeshes = skinned; state.bones = bones; state.stats = stats;
     for (const bone of bones) state.rest.set(bone, {quaternion: bone.quaternion.clone(), position: bone.position.clone(), scale: bone.scale.clone()});
     state.skeletonHelper = new THREE.SkeletonHelper(fbx);
@@ -238,6 +252,7 @@ function setTab(tab) {
   state.activeTab = tab;
   const editingMarkers = tab === 'rig' && state.model && state.stats?.bones === 0;
   markerTool.setActive(Boolean(editingMarkers));
+  envelopeTool.setActive(tab === 'skin');
   $('#marker-views').classList.toggle('hidden', !editingMarkers);
   $('#marker-tip').classList.toggle('hidden', !editingMarkers);
   $('#active-mode').textContent = tab.toUpperCase();
@@ -248,6 +263,43 @@ function metric(name, value) { return `<div class="metric"><span>${name}</span><
 function information(text) { return `<div class="info-card"><span class="info-symbol">ⓘ</span><p>${text}</p></div>`; }
 function sectionTitle(title, subtitle = '') { return `<div class="panel-section-title"><strong>${title}</strong>${subtitle ? `<span>${subtitle}</span>` : ''}</div>`; }
 
+function buildEnvelopeDefaults() {
+  if (!state.model || state.stats?.bones || !markerTool.getStatus().approved) return false;
+  if (state.envelopeConfig) return true;
+  const boundsBox = new THREE.Box3().setFromObject(state.model);
+  const bounds={min:boundsBox.min.toArray(),max:boundsBox.max.toArray()};
+  const bones=buildSkeletonTemplate(bounds, markerTool.asApprovedRigPayload());
+  const sample=[];const worldPoint=new THREE.Vector3();
+  state.model.updateWorldMatrix(true,true);
+  const total=state.meshes.reduce((n,mesh)=>n+(mesh.geometry?.attributes?.position?.count||0),0);
+  const skip=Math.max(1,Math.ceil(total/14000));
+  for(const mesh of state.meshes){
+    const pos=mesh.geometry?.attributes?.position;
+    if(!pos)continue;
+    for(let i=0;i<pos.count;i+=skip){
+      worldPoint.fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld);
+      sample.push(worldPoint.toArray());
+    }
+  }
+  const config=fitEnvelopes(bones,bounds,sample);
+  state.envelopeConfig=config;
+  state.envelopeDefaults=JSON.parse(JSON.stringify(config));
+  state.envelopeBones=bones;
+  state.envelopeHeight=bounds.max[1]-bounds.min[1];
+  state.envelopeDirty=false;
+  refreshEnvelopePreview();
+  return true;
+}
+function refreshEnvelopePreview() {
+  envelopeTool.update({bones:state.envelopeBones, config:state.envelopeConfig,
+    selected:state.selectedEnvelope, showAll:state.showAllEnvelopes, height:state.envelopeHeight});
+}
+function updateEnvelope(name, change) {
+  if (!state.envelopeConfig?.envelopes?.[name]) return;
+  Object.assign(state.envelopeConfig.envelopes[name],change);
+  state.envelopeDirty=true;
+  refreshEnvelopePreview();
+}
 function renderPanel() {
   const panel = $('#panel');
   const s = state.stats;
@@ -257,7 +309,7 @@ function renderPanel() {
       ${state.file ? `<div class="asset-card"><div class="asset-file-icon">FBX</div><div><strong title="${escapeHtml(state.file.name)}">${escapeHtml(state.file.name)}</strong><small>${(state.file.size / (1024 * 1024)).toFixed(2)} MB · LOCAL FILE</small></div></div>` : `<div class="asset-placeholder">No file imported yet.<br/>Choose a character FBX to start.</div>`}
       ${sectionTitle('Geometry diagnostics')}
       <div class="metrics">${metric('Meshes', s?.meshes ?? '—')}${metric('Vertices', s?.vertices ?? '—')}${metric('Triangles', s?.triangles ?? '—')}${metric('Materials', s?.materials ?? '—')}${metric('Skinned meshes', s?.skinned ?? '—')}${metric('Bones', s?.bones ?? '—')}${metric('Animation clips', s?.animations ?? '—')}</div>
-      ${information('Alpha 0.1: experimental procedural Auto-Rig + Auto-Skin for upright humanoids in A/T pose. Requires the Blender worker. This is not AI-based yet.')}
+      ${information('Alpha 0.3: experimental marker-driven envelope Auto-Rig + Auto-Skin for upright humanoids in A/T pose. Requires the Blender worker. This is not AI-based yet.')}
       <button class="full-button gold" id="panel-import">＋ &nbsp; Import FBX</button>
       `;
     $('#panel-import').addEventListener('click', selectFile);
@@ -265,7 +317,7 @@ function renderPanel() {
     const canRig = Boolean(s && !s.bones && state.workerReady && !state.processing);
     const m = markerTool.getStatus();
     const complete = m.count === m.total;
-    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.2.2')}
+    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.3.0')}
       ${s?.bones ? information('The generated FBX is rigged. Inspect bones below, or reopen the original unrigged FBX to refine markers and regenerate.') : !s ? information('Import an FBX character to start placing anatomical markers. No Blender worker is required for this step.') : `
       <div class="marker-summary"><strong>${m.count}<span> / ${m.total}</span></strong><span>${complete ? 'Ready for review' : 'Markers confirmed'}<small>Blue = suggested · Green = confirmed · Gold = selected</small></span></div>
       <div class="marker-list">${MARKER_DEFS.map((def, index) => `<button class="marker-row ${m.selected===def.key?'selected':''}" data-marker="${def.key}"><span class="marker-number">${String(index+1).padStart(2,'0')}</span><span class="marker-description"><strong>${def.label}</strong><small>${def.hint}</small></span><span class="marker-indicator ${m.confirmed[def.key]?'confirmed':'suggested'}"></span></button>`).join('')}</div>
@@ -280,7 +332,7 @@ function renderPanel() {
       ${information('Set all 16 anatomical markers, enable Skeleton preview, inspect the calculated bones in Front and Side, and approve before skinning. Dragging any marker after approval requires a new review.')}
       `}
       <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.2.2')}
-      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Skin from 16 markers'}</button>` : ''}
+      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Envelope Skin'}</button>` : ''}
       ${s && !s.bones && !state.workerReady ? information('Start the Blender worker (start-worker.cmd) for rig generation. Marker editing remains local and works without it.') : ''}
       ${s && !s.bones && !complete ? information(`Confirm all ${m.total} markers, then review the skeleton.`) : ''}
       ${s && !s.bones && complete && !m.approved ? information('Preview and approve the 19-bone skeleton before generating skin weights.') : ''}
@@ -297,16 +349,64 @@ function renderPanel() {
     $('#marker-load')?.addEventListener('click',()=>$('#marker-input').click());
     $('#marker-save')?.addEventListener('click',saveMarkers);
     panel.querySelectorAll('[data-select-bone]').forEach((el) => el.addEventListener('click', () => {state.selectedBone = state.bones[Number(el.dataset.selectBone)]; setTab('pose');}));
-    $('#auto-rig')?.addEventListener('click', generateRig);
+    $('#auto-rig')?.addEventListener('click',()=>generateRig());
     $('#download-rig')?.addEventListener('click', () => saveBlob(state.riggedFile, state.riggedFile.name));
     $('#edit-source-markers')?.addEventListener('click', () => { if (state.sourceFile) importFBX(state.sourceFile, {markerDraft:state.savedMarkerDraft}); });
   } else if (state.activeTab === 'skin') {
-    panel.innerHTML = `${sectionTitle('Skinning diagnostics', 'DEFORMATION')}
-      <div class="headline-stat"><strong>${s ? s.skinned : '—'}</strong><span>Skinned meshes</span></div>
-      ${state.skinnedMeshes.length ? `<div class="mesh-list">${state.skinnedMeshes.map((m) => `<div class="mesh-row"><span class="mesh-dot"></span>${escapeHtml(m.name || 'Unnamed mesh')}<small>${m.skeleton?.bones?.length || 0} bones</small></div>`).join('')}</div>` : information(s ? 'No skinned meshes found. This character requires weight generation before it can deform.' : 'Import an FBX to inspect skin bindings.')}
-      <button class="full-button" id="skin-wire">${state.wire ? 'Hide wireframe' : 'Show wireframe'}</button>
-      ${information(state.rigReport ? `Auto-Skin generated using ${state.rigReport.weights.map(x => x.weights).join(', ')}. Inspect shoulder, hip, elbow and knee bends. No weight paint editor yet.` : 'Automatic weights can be generated from the Rig tab for unrigged T/A-pose humanoids. Existing FBX skin is inspected without modification.')}`;
-    $('#skin-wire').addEventListener('click', () => {state.wire = !state.wire; $('#toggle-wire').classList.toggle('toggled', state.wire); updateWire(); renderPanel();});
+    if (!state.envelopeConfig && s && !s.bones && markerTool.getStatus().approved) {
+      try { buildEnvelopeDefaults(); } catch (error) { notify('Envelope setup failed: ' + error.message, 'error'); }
+    }
+    const active = Boolean(state.envelopeConfig && state.envelopeBones?.length);
+    const names = active ? state.envelopeBones.map(b=>b.name) : [];
+    if (active && !names.includes(state.selectedEnvelope)) state.selectedEnvelope=names[0];
+    const selected=active ? state.envelopeConfig.envelopes[state.selectedEnvelope] : null;
+    const report=state.rigReport?.weights || [];
+    const outside=report.reduce((sum,row)=>sum+(row.fallbackVertices||0),0);
+    const total=report.reduce((sum,row)=>sum+(row.totalVertices||0),0);
+    let markup=sectionTitle('Smart Skin Envelopes','ALPHA 0.3 PILOT');
+    markup+='<div class="headline-stat"><strong>'+(active?names.length:(s?.skinned??'—'))+'</strong><span>'+(active?'Bone-owned envelopes':'Skinned meshes')+'</span></div>';
+    if(active){
+      markup+='<label class="field-label" for="skin-method">SKINNING METHOD</label>';
+      markup+='<select id="skin-method" class="bone-select"><option value="envelope" '+(state.skinMethod==='envelope'?'selected':'')+'>Envelope Skin — editable volumes</option><option value="auto" '+(state.skinMethod==='auto'?'selected':'')+'>Blender Auto Weights — legacy</option></select>';
+      markup+='<label class="field-label" for="envelope-bone">ENVELOPE OWNER / BONE</label>';
+      markup+='<select id="envelope-bone" class="bone-select">'+names.map(n=>'<option value="'+n+'" '+(state.selectedEnvelope===n?'selected':'')+'>'+escapeHtml(n)+'</option>').join('')+'</select>';
+      markup+='<label class="field-label" for="envelope-radius">CAPSULE RADIUS <strong id="envelope-radius-value">'+(selected.radius*100).toFixed(1)+'%</strong> OF CHARACTER HEIGHT</label>';
+      markup+='<input id="envelope-radius" class="envelope-slider" type="range" min="0.4" max="35" step="0.2" value="'+(selected.radius*100)+'" />';
+      markup+='<label class="field-label" for="envelope-mode">INFLUENCE BEHAVIOR</label>';
+      markup+='<select id="envelope-mode" class="bone-select"><option value="smooth" '+(selected.mode==='smooth'?'selected':'')+'>Smooth — blend with overlapping bones</option><option value="rigid" '+(selected.mode==='rigid'?'selected':'')+'>Rigid — follow this bone only</option></select>';
+      markup+='<label class="envelope-show"><input type="checkbox" id="envelope-show-all" '+(state.showAllEnvelopes?'checked':'')+'/> Show all envelopes</label>';
+      markup+='<button class="full-button" id="envelope-reset">↻ Reset selected envelope</button>';
+      markup+=information(state.skinMethod==='envelope' ? 'Automatic fit starts each envelope from the mesh. Radius and Smooth/Rigid control the weights computed in Blender. Bone ownership is fixed by the selected bone.' : 'Legacy Blender Auto Weights uses the same approved skeleton but ignores envelope settings.');
+      if(state.envelopeDirty && s?.bones)markup+=information('Envelope settings changed. Rebuild the FBX to apply them; the displayed weights are still from the previous run.');
+      if(!s?.bones)markup+='<button class="full-button gold" id="envelope-generate" '+(state.workerReady&&markerTool.getStatus().approved&&!state.processing?'':'disabled')+'>'+(state.processing?'Generating…':'Generate Rig + Envelope Skin')+'</button>';
+      else if(state.riggedFile&&state.sourceFile&&state.savedRigMarkers)markup+='<button class="full-button gold" id="envelope-rebuild" '+(state.workerReady&&!state.processing?'':'disabled')+'>'+(state.processing?'Generating…':'Rebuild Skin from Source FBX')+'</button>';
+    } else {
+      markup+=information(s?.bones ? 'Imported rigs can be inspected, but envelope editing currently applies to WhiskeyPose marker-driven skeletons.' : 'In Rig, confirm the 16 markers and approve the skeleton. The Skin tab will then auto-fit editable capsules.');
+    }
+    if(report.length)markup+='<div class="metrics">'+metric('Envelope skin',state.rigReport?.skinMode==='envelope'?'Used':'Not used')+metric('Outside-envelope vertices',total?(formatCount(outside)+' / '+formatCount(total)+' ('+(outside/total*100).toFixed(1)+'%)'):'—')+'</div>';
+    if(state.skinnedMeshes.length)markup+='<div class="mesh-list">'+state.skinnedMeshes.map(m=>'<div class="mesh-row"><span class="mesh-dot"></span>'+escapeHtml(m.name||'Unnamed mesh')+'<small>'+(m.skeleton?.bones?.length||0)+' bones</small></div>').join('')+'</div>';
+    markup+='<button class="full-button" id="skin-wire">'+(state.wire?'Hide wireframe':'Show wireframe')+'</button>';
+    markup+=information('Pilot limitation: proximity volumes can assign loose clothing or accessories to nearby bones. Uncovered vertices are weighted to the nearest bone and counted above.');
+    panel.innerHTML=markup;
+    $('#skin-wire').addEventListener('click',()=>{state.wire=!state.wire;$('#toggle-wire').classList.toggle('toggled',state.wire);updateWire();renderPanel();});
+    if(active){
+      refreshEnvelopePreview();
+      $('#skin-method').addEventListener('change',e=>{state.skinMethod=e.target.value;renderPanel();});
+      $('#envelope-bone').addEventListener('change',e=>{state.selectedEnvelope=e.target.value;renderPanel();});
+      $('#envelope-radius').addEventListener('input',e=>{
+        const radius=Number(e.target.value)/100;
+        updateEnvelope(state.selectedEnvelope,{radius});
+        $('#envelope-radius-value').textContent=(radius*100).toFixed(1)+'%';
+      });
+      $('#envelope-mode').addEventListener('change',e=>updateEnvelope(state.selectedEnvelope,{mode:e.target.value}));
+      $('#envelope-show-all').addEventListener('change',e=>{state.showAllEnvelopes=e.target.checked;refreshEnvelopePreview();});
+      $('#envelope-reset').addEventListener('click',()=>{
+        if(state.envelopeDefaults?.envelopes?.[state.selectedEnvelope])updateEnvelope(state.selectedEnvelope,{...state.envelopeDefaults.envelopes[state.selectedEnvelope]});
+        renderPanel();
+      });
+      $('#envelope-generate')?.addEventListener('click',()=>generateRig());
+      $('#envelope-rebuild')?.addEventListener('click',()=>generateRig({rebuild:true}));
+    }else envelopeTool.clear();
   } else {
     const bone = state.selectedBone;
     panel.innerHTML = `${sectionTitle('Interactive pose', 'RIGGED FBX ONLY')}
@@ -434,40 +534,51 @@ function updateExportUI() {
   button.disabled = !state.file || !state.workerReady;
   button.title = !state.file ? 'Import an FBX first' : !state.workerReady ? 'Start the Blender worker (start-worker.cmd)' : 'Experimental Blender FBX round-trip';
 }
-async function generateRig() {
-  if (!state.file || state.stats?.bones || !state.workerReady || state.processing || !markerTool.getStatus().approved) return;
-  const inputFile = state.file;
+async function generateRig({rebuild=false}={}) {
+  if (!state.workerReady || state.processing) return;
+  if (!rebuild && (!state.file || state.stats?.bones || !markerTool.getStatus().approved)) return;
+  if (!rebuild && !state.envelopeConfig) {
+    try { buildEnvelopeDefaults(); } catch (error) { notify(error.message,'error'); return; }
+  }
+  const inputFile = rebuild ? state.sourceFile : state.file;
+  const markers = rebuild ? state.savedRigMarkers : markerTool.asApprovedRigPayload();
+  if (!inputFile || !markers || !state.envelopeConfig) return;
   state.processing = true;
   renderPanel();
-  notify('Blender is generating an experimental humanoid skeleton and skin weights…');
+  notify('Blender is calculating rig and envelope-driven skin weights…');
   try {
-    const markerDraft = markerTool.asDraft(inputFile.name);
-    const payload = {name: inputFile.name, fbxBase64: await fileAsBase64(inputFile), method: 'auto', skeletonApproved: true, markers: markerTool.asApprovedRigPayload()};
-    const response = await fetch('/api/auto-rig', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const markerDraft = rebuild ? state.savedMarkerDraft : markerTool.asDraft(inputFile.name);
+    const payload = {
+      name:inputFile.name, fbxBase64:await fileAsBase64(inputFile),
+      method:state.skinMethod, skeletonApproved:true, markers,
+      envelopes:validateEnvelopeDraft(state.envelopeConfig,state.envelopeBones),
+    };
+    const response = await fetch('/api/auto-rig', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if (!response.ok) {
-      const error = await response.json().catch(() => ({error: response.statusText}));
-      throw new Error(error.error || response.statusText);
+      const error=await response.json().catch(()=>({error:response.statusText}));
+      throw Error(error.error||response.statusText);
     }
-    const report = JSON.parse(response.headers.get('X-WhiskeyPose-Report') || '{}');
-    const blob = await response.blob();
-    const rigged = new File([blob], inputFile.name.replace(/\.fbx$/i, '') + '_WhiskeyPose_Rigged.fbx', {type:'application/octet-stream'});
-    if (report.template !== 'confirmed-markers' || report.landmarkCount !== 16) throw new Error('Worker did not confirm marker-driven generation. Check the worker version.');
-    state.savedMarkerDraft = markerDraft;
-    const loaded = await importFBX(rigged, {generated:true, report, markerDraft});
-    if (!loaded) {
-      saveBlob(rigged, rigged.name);
-      throw new Error('Blender generated an FBX, but the viewport could not parse it. The file was downloaded for inspection.');
+    const report=JSON.parse(response.headers.get('X-WhiskeyPose-Report')||'{}');
+    if (report.template!=='confirmed-markers'||report.landmarkCount!==16||report.skinMode!==state.skinMethod||report.envelopeCount!==(state.skinMethod==='envelope'?19:0)) {
+      throw Error('Worker did not confirm 16-marker skinning. Restart the worker after git pull.');
     }
-    state.bonesVisible = true;
+    const blob=await response.blob();
+    const rigged=new File([blob],inputFile.name.replace(/\.fbx$/i,'')+'_WhiskeyPose_EnvelopeRig.fbx',{type:'application/octet-stream'});
+    state.savedRigMarkers=markers;
+    state.savedMarkerDraft=markerDraft;
+    const loaded=await importFBX(rigged,{generated:true,report,markerDraft});
+    if(!loaded){saveBlob(rigged,rigged.name);throw Error('FBX was generated but the viewport could not load it; file downloaded for review.');}
+    state.envelopeDirty=false;
+    state.bonesVisible=true;
     $('#toggle-skeleton').classList.add('toggled');
-    if (state.skeletonHelper) state.skeletonHelper.visible = true;
-    setTab('rig');
-    notify(`Marker-driven rig generated: ${state.stats.bones} bones, ${state.stats.skinned} skinned mesh(es). Inspect joints and skin.`, 'success');
-  } catch (error) {
-    notify(`Auto-Rig failed: ${error.message}`, 'error');
-    console.error('Auto-Rig failed:', error);
+    if(state.skeletonHelper)state.skeletonHelper.visible=true;
+    setTab('skin');
+    notify('Rig generated ('+report.skinMode+'): '+state.stats.bones+' bones. Inspect deformation and fallback counts.', 'success');
+  } catch(error){
+    notify('Envelope Skin failed: '+error.message,'error');
+    console.error('Envelope Skin failed:',error);
   } finally {
-    state.processing = false;
+    state.processing=false;
     renderPanel();
   }
 }
