@@ -1,8 +1,9 @@
 """Envelope influence tests do not need Blender; actual FBX remains a separate test."""
 import unittest
-import os, sys
+import os, sys, json, shutil, subprocess
 sys.path.insert(0,os.path.join(os.path.dirname(__file__),'..','backend'))
 from envelope_skin import validate_envelopes,envelope_weights
+
 
 def definitions():
     return [
@@ -17,36 +18,76 @@ def data():
 class TestEnvelopeSkin(unittest.TestCase):
     def test_validation(self):
         self.assertEqual(len(validate_envelopes(data(),definitions())),3)
-        d=data();d['envelopes']['spine']['radius']=-.5
+        d=data(); d['envelopes']['spine']['radius']=-.5
         with self.assertRaises(ValueError):validate_envelopes(d,definitions())
         d=data();d['envelopes']['spine']['mode']='paint'
         with self.assertRaises(ValueError):validate_envelopes(d,definitions())
     def test_radius_changes_ownership(self):
-        point=(.36,0,.5)
-        config=validate_envelopes(data(),definitions())
-        before,fallback=envelope_weights(point,definitions(),config,1)
-        self.assertTrue(fallback)
+        p=(.36,0,.5)
+        d=validate_envelopes(data(),definitions())
+        before,used_fallback=envelope_weights(p,definitions(),d,1)
+        self.assertTrue(used_fallback)
         self.assertEqual(before[0][0],'spine')
-        config['upper_arm.L']['radius']=.4
-        after,fallback=envelope_weights(point,definitions(),config,1)
-        self.assertFalse(fallback)
+        d['upper_arm.L']['radius']=.4
+        after,used_fallback=envelope_weights(p,definitions(),d,1)
+        self.assertFalse(used_fallback)
         self.assertEqual(after[0][0],'upper_arm.L')
     def test_smooth_and_rigid(self):
-        config=validate_envelopes(data(),definitions())
-        config['upper_arm.L']['radius']=.4
-        config['spine']['radius']=.4
-        result,fallback=envelope_weights((.2,0,.5),definitions(),config,1)
-        self.assertFalse(fallback)
+        d=validate_envelopes(data(),definitions())
+        d['upper_arm.L']['radius']=.4
+        d['spine']['radius']=.4
+        result,used_fallback=envelope_weights((.2,0,.5),definitions(),d,1)
+        self.assertFalse(used_fallback)
         self.assertAlmostEqual(sum(w for _,w in result),1)
         self.assertLessEqual(len(result),4)
         self.assertGreater(len(result),1)
-        config['spine']['mode']='rigid'
-        result,_=envelope_weights((.2,0,.5),definitions(),config,1)
+        d['spine']['mode']='rigid'
+        result,_=envelope_weights((.2,0,.5),definitions(),d,1)
         self.assertEqual(result,[('spine',1.0)])
     def test_fallback_when_no_envelope_covers_point(self):
         result,fallback=envelope_weights((5,0,0),definitions(),validate_envelopes(data(),definitions()),1)
         self.assertEqual(result,[('upper_arm.R',1.0)])
         self.assertTrue(fallback)
+    @unittest.skipUnless(shutil.which('node'), 'Node.js required for JS/Python parity')
+    def test_javascript_python_weight_parity(self):
+        import pathlib
+        root=pathlib.Path(__file__).resolve().parent.parent
+        js="""import {envelopeWeights} from './src/envelope_math.js';
+        const bones=[
+          {name:'upper_arm.L',head:[0,0,0],tail:[0,0,1]},
+          {name:'upper_arm.R',head:[1,0,0],tail:[1,0,1]},
+          {name:'spine',head:[.5,0,0],tail:[.5,0,1]},
+        ];
+        const env={envelopes:{'upper_arm.L':{radius:.4,mode:'smooth'},'upper_arm.R':{radius:.3,mode:'smooth'},spine:{radius:.4,mode:'smooth'}}};
+        const points=[[.2,0,.5],[.6,0,.5],[3,0,.5]];
+        console.log(JSON.stringify(points.map(p=>envelopeWeights(p,bones,env,1))));"""
+        child=subprocess.run(['node','--input-type=module','-e',js],cwd=root,text=True,capture_output=True,check=True)
+        actual=json.loads(child.stdout)
+        config=validate_envelopes({'format':'whiskeypose-skin-envelopes','version':1,'envelopes':{
+            'upper_arm.L':{'radius':.4,'mode':'smooth'},
+            'upper_arm.R':{'radius':.3,'mode':'smooth'},
+            'spine':{'radius':.4,'mode':'smooth'},
+        }},definitions())
+        for point, js_result in zip([(.2,0,.5),(.6,0,.5),(3,0,.5)],actual):
+            py_weights,py_fallback=envelope_weights(point,definitions(),config,1)
+            self.assertEqual(js_result['fallback'],py_fallback)
+            self.assertEqual([x[0] for x in js_result['weights']],[x[0] for x in py_weights])
+            for (_,weight),(_,py_weight) in zip(js_result['weights'],py_weights):
+                self.assertAlmostEqual(weight,py_weight,places=9)
+
+    def test_strength_blends_and_excludes(self):
+        d=validate_envelopes(data(),definitions())
+        for entry in d.values():entry['radius']=.4
+        point=(.2,0,.5)
+        before,_=envelope_weights(point,definitions(),d,1)
+        d['upper_arm.L']['strength']=2.0
+        after,_=envelope_weights(point,definitions(),d,1)
+        lookup=lambda x,name:dict(x).get(name,0)
+        self.assertGreater(lookup(after,'upper_arm.L'),lookup(before,'upper_arm.L'))
+        d['upper_arm.L']['strength']=0
+        after,_=envelope_weights(point,definitions(),d,1)
+        self.assertEqual(lookup(after,'upper_arm.L'),0)
+        self.assertAlmostEqual(sum(weight for _,weight in after),1)
     def test_reject_bool_radius(self):
         d=data();d['envelopes']['spine']['radius']=True
         with self.assertRaises(ValueError):validate_envelopes(d,definitions())

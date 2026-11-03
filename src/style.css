@@ -65,3 +65,12 @@
 .envelope-show{display:flex;gap:9px;align-items:center;color:#b5bebd;font-size:11px;margin:2px 0 17px}
 .envelope-show input{accent-color:#dba767}
 .field-label strong{color:#efbd79;float:right;font-size:11px}
+
+/* Alpha 0.3.1: live envelope editing and in-panel pose test */
+.live-status{font-size:10px;font-weight:700;color:#81cfac;letter-spacing:.55px;margin:18px 0 8px}
+.live-summary{font-size:10px;color:#a0abad;margin:0 0 20px;display:flex;justify-content:space-between;gap:8px}
+.live-summary strong{color:#d8e4df;font-family:'Space Grotesk',sans-serif}
+.live-pose-section{border:1px solid #3b4946;border-radius:9px;background:#202927;padding:14px 11px;margin:20px 0 13px}
+.live-pose-section .panel-section-title{margin-bottom:13px}
+.skin-hint{font-size:10px;line-height:1.55;color:#95a3a3;margin:4px 0 14px}
+.live-pose-section .panel-row{margin:17px 0 0}

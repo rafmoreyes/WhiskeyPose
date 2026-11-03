@@ -7,6 +7,7 @@ import { MARKER_DEFS } from './marker_math.js';
 import { buildSkeletonTemplate } from './skeleton_solver.js';
 import { fitEnvelopes, validateEnvelopeDraft } from './envelope_math.js';
 import { createEnvelopeTool } from './envelope_tool.js';
+import { createLiveSkin } from './live_skin.js';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -16,7 +17,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.0 <span class="version-note">SKIN ENVELOPES</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.1 <span class="version-note">LIVE SKIN</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -79,7 +80,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 let notifyTimer;
 
 function notify(message, type = 'info') {
@@ -142,7 +143,13 @@ function resizeViewport() {
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
 }
 new ResizeObserver(resizeViewport).observe(viewport);
-function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+function animate() {
+  requestAnimationFrame(animate);controls.update();
+  if (state.liveSkin && state.model && (state.activeTab === 'skin' || state.activeTab === 'pose')) {
+    state.model.updateWorldMatrix(true,true); envelopeTool.tick();
+  }
+  renderer.render(scene,camera);
+}
 animate(); resizeViewport();
 
 function frameModel() {
@@ -166,6 +173,7 @@ function frameModel() {
 }
 
 function destroyModel() {
+  state.liveSkin?.dispose();state.liveSkin=null;state.liveError=null;
   markerTool.setModel(null);
   envelopeTool.clear();
   if (state.skeletonHelper) { scene.remove(state.skeletonHelper); state.skeletonHelper.geometry?.dispose(); state.skeletonHelper = null; }
@@ -229,6 +237,14 @@ async function importFBX(file, options = {}) {
     $('#viewport-foot-left').textContent = `${formatCount(stats.vertices)} VERTICES · ${formatCount(stats.triangles)} TRIS`;
     $('#viewport-foot-right').textContent = stats.bones ? `${stats.bones} BONES DETECTED` : 'UNRIGGED MESH';
     state.selectedBone = bones[0] || null;
+    if (options.generated && state.envelopeConfig && state.envelopeBones && skinned.length && state.skinMethod === 'envelope') {
+      try {
+        state.liveSkin=createLiveSkin(skinned,state.envelopeBones,state.envelopeConfig);
+        state.envelopeHeight=state.liveSkin.height;
+        state.liveSkin.toggleHeatmap(state.showSkinHeatmap && state.activeTab==='skin');
+        state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope);
+      }catch(error){state.liveError=error.message;console.warn('Live Skin initialization failed:',error);}
+    }
     renderPanel(); updateExportUI();
     notify(`Loaded ${file.name}. ${stats.bones ? `${stats.bones} bones detected.` : 'No skeleton detected yet.'}`, 'success');
     return true;
@@ -252,7 +268,8 @@ function setTab(tab) {
   state.activeTab = tab;
   const editingMarkers = tab === 'rig' && state.model && state.stats?.bones === 0;
   markerTool.setActive(Boolean(editingMarkers));
-  envelopeTool.setActive(tab === 'skin');
+  envelopeTool.setActive(tab === 'skin' || (tab === 'pose' && Boolean(state.liveSkin)));
+  state.liveSkin?.toggleHeatmap(state.showSkinHeatmap && tab==='skin');
   $('#marker-views').classList.toggle('hidden', !editingMarkers);
   $('#marker-tip').classList.toggle('hidden', !editingMarkers);
   $('#active-mode').textContent = tab.toUpperCase();
@@ -291,14 +308,59 @@ function buildEnvelopeDefaults() {
   return true;
 }
 function refreshEnvelopePreview() {
-  envelopeTool.update({bones:state.envelopeBones, config:state.envelopeConfig,
-    selected:state.selectedEnvelope, showAll:state.showAllEnvelopes, height:state.envelopeHeight});
+  envelopeTool.update({bones:state.liveSkin ? state.liveSkin.poseSegments() : state.envelopeBones,
+    getPoseSegments:state.liveSkin?()=>state.liveSkin.poseSegments():null,
+    config:state.envelopeConfig,selected:state.selectedEnvelope,
+    showAll:state.showAllEnvelopes,height:state.envelopeHeight});
+}
+let liveUpdatePending=false;
+function scheduleLiveSkinUpdate() {
+  if(liveUpdatePending || !state.liveSkin || state.skinMethod!=='envelope') return;
+  liveUpdatePending=true;
+  requestAnimationFrame(()=>{
+    liveUpdatePending=false;
+    if(!state.liveSkin||!state.envelopeConfig)return;
+    try {
+      state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope);
+      state.liveError=null;
+      if(state.activeTab==='skin'){
+        const label=$('#live-outside-count');
+        if(label)label.textContent=`${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}`;
+      }
+    }catch(error){state.liveError=error.message;notify(`Live Skin failed: ${error.message}`,'error');}
+  });
+}
+function boneForEnvelope(name) {
+  const key=String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  return state.bones.find(b=>String(b.name).toLowerCase().replace(/[^a-z0-9]/g,'')===key)||null;
+}
+function skinPoseControls() {
+  const bone=boneForEnvelope(state.selectedEnvelope);
+  if(!bone)return information('No matching pose bone was found for this envelope.');
+  state.selectedBone=bone;
+  return `<div class="live-pose-section">${sectionTitle('Pose Test', 'LIVE DEFORMATION')}
+    <p class="skin-hint">Bend ${escapeHtml(bone.name)} while tuning its envelope. The pose stays in place.</p>
+    ${['x','y','z'].map(axis=>`<div class="rotation-row"><label class="axis ${axis}">${axis.toUpperCase()}</label>
+      <input data-live-pose-axis="${axis}" type="range" min="-180" max="180" step="1" value="${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}" />
+      <output data-live-pose-readout="${axis}">${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}°</output></div>`).join('')}
+    <div class="panel-row"><button class="half-button" id="skin-reset-selected-pose">Reset bone</button><button class="half-button" id="skin-reset-all-pose">Reset pose</button></div>
+  </div>`;
+}
+function bindSkinPoseControls(panel){
+  const bone=boneForEnvelope(state.selectedEnvelope);if(!bone)return;
+  panel.querySelectorAll('[data-live-pose-axis]').forEach(input=>input.addEventListener('input',()=>{
+    bone.rotation[input.dataset.livePoseAxis]=THREE.MathUtils.degToRad(Number(input.value));
+    panel.querySelector(`[data-live-pose-readout="${input.dataset.livePoseAxis}"]`).textContent=`${input.value}°`;
+  }));
+  $('#skin-reset-selected-pose')?.addEventListener('click',()=>{resetBone(bone);renderPanel();});
+  $('#skin-reset-all-pose')?.addEventListener('click',()=>{for(const b of state.bones)resetBone(b);renderPanel();});
 }
 function updateEnvelope(name, change) {
   if (!state.envelopeConfig?.envelopes?.[name]) return;
   Object.assign(state.envelopeConfig.envelopes[name],change);
   state.envelopeDirty=true;
   refreshEnvelopePreview();
+  scheduleLiveSkinUpdate();
 }
 function renderPanel() {
   const panel = $('#panel');
@@ -317,7 +379,7 @@ function renderPanel() {
     const canRig = Boolean(s && !s.bones && state.workerReady && !state.processing);
     const m = markerTool.getStatus();
     const complete = m.count === m.total;
-    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.3.0')}
+    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.3.1')}
       ${s?.bones ? information('The generated FBX is rigged. Inspect bones below, or reopen the original unrigged FBX to refine markers and regenerate.') : !s ? information('Import an FBX character to start placing anatomical markers. No Blender worker is required for this step.') : `
       <div class="marker-summary"><strong>${m.count}<span> / ${m.total}</span></strong><span>${complete ? 'Ready for review' : 'Markers confirmed'}<small>Blue = suggested · Green = confirmed · Gold = selected</small></span></div>
       <div class="marker-list">${MARKER_DEFS.map((def, index) => `<button class="marker-row ${m.selected===def.key?'selected':''}" data-marker="${def.key}"><span class="marker-number">${String(index+1).padStart(2,'0')}</span><span class="marker-description"><strong>${def.label}</strong><small>${def.hint}</small></span><span class="marker-indicator ${m.confirmed[def.key]?'confirmed':'suggested'}"></span></button>`).join('')}</div>
@@ -331,7 +393,7 @@ function renderPanel() {
       </div>
       ${information('Set all 16 anatomical markers, enable Skeleton preview, inspect the calculated bones in Front and Side, and approve before skinning. Dragging any marker after approval requires a new review.')}
       `}
-      <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.2.2')}
+      <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.3.1')}
       ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Envelope Skin'}</button>` : ''}
       ${s && !s.bones && !state.workerReady ? information('Start the Blender worker (start-worker.cmd) for rig generation. Marker editing remains local and works without it.') : ''}
       ${s && !s.bones && !complete ? information(`Confirm all ${m.total} markers, then review the skeleton.`) : ''}
@@ -354,59 +416,70 @@ function renderPanel() {
     $('#edit-source-markers')?.addEventListener('click', () => { if (state.sourceFile) importFBX(state.sourceFile, {markerDraft:state.savedMarkerDraft}); });
   } else if (state.activeTab === 'skin') {
     if (!state.envelopeConfig && s && !s.bones && markerTool.getStatus().approved) {
-      try { buildEnvelopeDefaults(); } catch (error) { notify('Envelope setup failed: ' + error.message, 'error'); }
+      try { buildEnvelopeDefaults(); } catch (error) { notify(`Envelope setup failed: ${error.message}`, 'error'); }
     }
-    const active = Boolean(state.envelopeConfig && state.envelopeBones?.length);
+    const active = state.envelopeConfig && state.envelopeBones?.length;
     const names = active ? state.envelopeBones.map(b=>b.name) : [];
     if (active && !names.includes(state.selectedEnvelope)) state.selectedEnvelope=names[0];
     const selected=active ? state.envelopeConfig.envelopes[state.selectedEnvelope] : null;
     const report=state.rigReport?.weights || [];
     const outside=report.reduce((sum,row)=>sum+(row.fallbackVertices||0),0);
     const total=report.reduce((sum,row)=>sum+(row.totalVertices||0),0);
-    let markup=sectionTitle('Smart Skin Envelopes','ALPHA 0.3 PILOT');
-    markup+='<div class="headline-stat"><strong>'+(active?names.length:(s?.skinned??'—'))+'</strong><span>'+(active?'Bone-owned envelopes':'Skinned meshes')+'</span></div>';
-    if(active){
-      markup+='<label class="field-label" for="skin-method">SKINNING METHOD</label>';
-      markup+='<select id="skin-method" class="bone-select"><option value="envelope" '+(state.skinMethod==='envelope'?'selected':'')+'>Envelope Skin — editable volumes</option><option value="auto" '+(state.skinMethod==='auto'?'selected':'')+'>Blender Auto Weights — legacy</option></select>';
-      markup+='<label class="field-label" for="envelope-bone">ENVELOPE OWNER / BONE</label>';
-      markup+='<select id="envelope-bone" class="bone-select">'+names.map(n=>'<option value="'+n+'" '+(state.selectedEnvelope===n?'selected':'')+'>'+escapeHtml(n)+'</option>').join('')+'</select>';
-      markup+='<label class="field-label" for="envelope-radius">CAPSULE RADIUS <strong id="envelope-radius-value">'+(selected.radius*100).toFixed(1)+'%</strong> OF CHARACTER HEIGHT</label>';
-      markup+='<input id="envelope-radius" class="envelope-slider" type="range" min="0.4" max="35" step="0.2" value="'+(selected.radius*100)+'" />';
-      markup+='<label class="field-label" for="envelope-mode">INFLUENCE BEHAVIOR</label>';
-      markup+='<select id="envelope-mode" class="bone-select"><option value="smooth" '+(selected.mode==='smooth'?'selected':'')+'>Smooth — blend with overlapping bones</option><option value="rigid" '+(selected.mode==='rigid'?'selected':'')+'>Rigid — follow this bone only</option></select>';
-      markup+='<label class="envelope-show"><input type="checkbox" id="envelope-show-all" '+(state.showAllEnvelopes?'checked':'')+'/> Show all envelopes</label>';
-      markup+='<button class="full-button" id="envelope-reset">↻ Reset selected envelope</button>';
-      markup+=information(state.skinMethod==='envelope' ? 'Automatic fit starts each envelope from the mesh. Radius and Smooth/Rigid control the weights computed in Blender. Bone ownership is fixed by the selected bone.' : 'Legacy Blender Auto Weights uses the same approved skeleton but ignores envelope settings.');
-      if(state.envelopeDirty && s?.bones)markup+=information('Envelope settings changed. Rebuild the FBX to apply them; the displayed weights are still from the previous run.');
-      if(!s?.bones)markup+='<button class="full-button gold" id="envelope-generate" '+(state.workerReady&&markerTool.getStatus().approved&&!state.processing?'':'disabled')+'>'+(state.processing?'Generating…':'Generate Rig + Envelope Skin')+'</button>';
-      else if(state.riggedFile&&state.sourceFile&&state.savedRigMarkers)markup+='<button class="full-button gold" id="envelope-rebuild" '+(state.workerReady&&!state.processing?'':'disabled')+'>'+(state.processing?'Generating…':'Rebuild Skin from Source FBX')+'</button>';
-    } else {
-      markup+=information(s?.bones ? 'Imported rigs can be inspected, but envelope editing currently applies to WhiskeyPose marker-driven skeletons.' : 'In Rig, confirm the 16 markers and approve the skeleton. The Skin tab will then auto-fit editable capsules.');
-    }
-    if(report.length)markup+='<div class="metrics">'+metric('Envelope skin',state.rigReport?.skinMode==='envelope'?'Used':'Not used')+metric('Outside-envelope vertices',total?(formatCount(outside)+' / '+formatCount(total)+' ('+(outside/total*100).toFixed(1)+'%)'):'—')+'</div>';
-    if(state.skinnedMeshes.length)markup+='<div class="mesh-list">'+state.skinnedMeshes.map(m=>'<div class="mesh-row"><span class="mesh-dot"></span>'+escapeHtml(m.name||'Unnamed mesh')+'<small>'+(m.skeleton?.bones?.length||0)+' bones</small></div>').join('')+'</div>';
-    markup+='<button class="full-button" id="skin-wire">'+(state.wire?'Hide wireframe':'Show wireframe')+'</button>';
-    markup+=information('Pilot limitation: proximity volumes can assign loose clothing or accessories to nearby bones. Uncovered vertices are weighted to the nearest bone and counted above.');
-    panel.innerHTML=markup;
-    $('#skin-wire').addEventListener('click',()=>{state.wire=!state.wire;$('#toggle-wire').classList.toggle('toggled',state.wire);updateWire();renderPanel();});
-    if(active){
+    panel.innerHTML = `${sectionTitle('Smart Skin Envelopes', 'ALPHA 0.3.1 LIVE')}
+      <div class="headline-stat"><strong>${active ? names.length : (s?.skinned ?? '—')}</strong><span>${active?'Bone-owned envelopes':'Skinned meshes'}</span></div>
+      ${active ? `
+      <label class="field-label" for="skin-method">SKINNING METHOD</label>
+      <select id="skin-method" class="bone-select" ${s?.bones ? 'disabled' : ''}><option value="envelope" ${state.skinMethod==='envelope'?'selected':''}>Envelope Skin — editable volumes</option><option value="auto" ${state.skinMethod==='auto'?'selected':''}>Blender Auto Weights — legacy</option></select>
+      <label class="field-label" for="envelope-bone">ENVELOPE OWNER / BONE</label>
+      <select id="envelope-bone" class="bone-select">${names.map(n=>`<option value="${n}" ${state.selectedEnvelope===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}</select>
+      <label class="field-label" for="envelope-radius">CAPSULE RADIUS <strong id="envelope-radius-value">${(selected.radius*100).toFixed(1)}%</strong> OF CHARACTER HEIGHT</label>
+      <input id="envelope-radius" class="envelope-slider" type="range" min="0.4" max="35" step="0.2" value="${selected.radius*100}" />
+      <label class="field-label" for="envelope-strength">INFLUENCE STRENGTH <strong id="envelope-strength-value">${Math.round((selected.strength??1)*100)}%</strong></label>
+      <input id="envelope-strength" class="envelope-slider" type="range" min="0" max="300" step="5" value="${(selected.strength??1)*100}" />
+      <div class="skin-hint">Relative influence, normalized with neighboring bones. 0% excludes this volume; 100% is normal.</div>
+      <label class="field-label" for="envelope-mode">INFLUENCE BEHAVIOR</label>
+      <select id="envelope-mode" class="bone-select"><option value="smooth" ${selected.mode==='smooth'?'selected':''}>Smooth — blend with overlapping bones</option><option value="rigid" ${selected.mode==='rigid'?'selected':''}>Rigid — follow this bone only</option></select>
+      <label class="envelope-show"><input type="checkbox" id="envelope-show-all" ${state.showAllEnvelopes?'checked':''}/> Show all envelopes</label>
+      <label class="envelope-show"><input type="checkbox" id="envelope-heatmap" ${state.showSkinHeatmap?'checked':''}/> Show influence heatmap</label>
+      <button class="full-button" id="envelope-reset">↻ Reset selected envelope</button>
+      ${information(state.skinMethod==='envelope' ? 'The selected capsule follows its bone while posing. Radius and Influence Strength update the mesh weights immediately; Blender is only needed to save the FBX.' : 'Legacy Blender Auto Weights uses the same approved skeleton but ignores envelope settings. Select Envelope Skin to apply your radius and ownership choices.')}
+      ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
+      ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Generate Rig + Envelope Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Save Edited Skin FBX (no pose reset)'}</button>` : ''}
+      ${state.liveSkin ? `<div class="live-status">● LIVE SKIN · Editing in memory, no FBX reload</div><div class="live-summary">Outside-envelope vertices: <strong id="live-outside-count">${state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'}</strong></div>${skinPoseControls()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
+      ` : information(s?.bones ? 'This FBX was imported with a rig. Envelope editing currently applies to skeletons built from WhiskeyPose markers.' : 'Go to Rig, confirm the 16 markers and approve the skeleton. The Skin tab will then generate editable envelopes automatically.')}
+      ${report.length && !state.liveSkin ? `<div class="metrics">${metric('Envelope skin',state.rigReport.skinMode==='envelope'?'Used':'Not used')}${metric('Outside-envelope vertices',total?`${formatCount(outside)} / ${formatCount(total)} (${(outside/total*100).toFixed(1)}%)`:'—')}</div>` : ''}
+      ${state.skinnedMeshes.length ? `<div class="mesh-list">${state.skinnedMeshes.map(m=>`<div class="mesh-row"><span class="mesh-dot"></span>${escapeHtml(m.name||'Unnamed mesh')}<small>${m.skeleton?.bones?.length||0} bones</small></div>`).join('')}</div>` : ''}
+      <button class="full-button" id="skin-wire">${state.wire ? 'Hide wireframe' : 'Show wireframe'}</button>
+      ${information('Skin preview is live. Saving produces an FBX in Rest Pose; use Save current pose JSON separately. Cloth, detached accessories and hair can still receive incorrect bone weights.')}`;
+    $('#skin-wire').addEventListener('click', () => {state.wire=!state.wire;$('#toggle-wire').classList.toggle('toggled',state.wire);updateWire();renderPanel();});
+    if (active) {
       refreshEnvelopePreview();
-      $('#skin-method').addEventListener('change',e=>{state.skinMethod=e.target.value;renderPanel();});
-      $('#envelope-bone').addEventListener('change',e=>{state.selectedEnvelope=e.target.value;renderPanel();});
-      $('#envelope-radius').addEventListener('input',e=>{
-        const radius=Number(e.target.value)/100;
+      $('#skin-method').addEventListener('change',event=>{state.skinMethod=event.target.value;if(state.skinMethod==='envelope')scheduleLiveSkinUpdate();renderPanel();});
+      $('#envelope-bone').addEventListener('change',event=>{state.selectedEnvelope=event.target.value;scheduleLiveSkinUpdate();renderPanel();});
+      $('#envelope-radius').addEventListener('input',event=>{
+        const radius=Number(event.target.value)/100;
         updateEnvelope(state.selectedEnvelope,{radius});
-        $('#envelope-radius-value').textContent=(radius*100).toFixed(1)+'%';
+        $('#envelope-radius-value').textContent=`${(radius*100).toFixed(1)}%`;
       });
-      $('#envelope-mode').addEventListener('change',e=>updateEnvelope(state.selectedEnvelope,{mode:e.target.value}));
-      $('#envelope-show-all').addEventListener('change',e=>{state.showAllEnvelopes=e.target.checked;refreshEnvelopePreview();});
+      $('#envelope-strength').addEventListener('input',event=>{
+        const strength=Number(event.target.value)/100;
+        updateEnvelope(state.selectedEnvelope,{strength});
+        $('#envelope-strength-value').textContent=`${Math.round(strength*100)}%`;
+      });
+      $('#envelope-mode').addEventListener('change',event=>updateEnvelope(state.selectedEnvelope,{mode:event.target.value}));
+      $('#envelope-heatmap').addEventListener('change',event=>{
+        state.showSkinHeatmap=event.target.checked;
+        state.liveSkin?.toggleHeatmap(state.showSkinHeatmap);
+      });
+      $('#envelope-show-all').addEventListener('change',event=>{state.showAllEnvelopes=event.target.checked;refreshEnvelopePreview();});
       $('#envelope-reset').addEventListener('click',()=>{
-        if(state.envelopeDefaults?.envelopes?.[state.selectedEnvelope])updateEnvelope(state.selectedEnvelope,{...state.envelopeDefaults.envelopes[state.selectedEnvelope]});
+        if (state.envelopeDefaults?.envelopes?.[state.selectedEnvelope]) updateEnvelope(state.selectedEnvelope,{...state.envelopeDefaults.envelopes[state.selectedEnvelope]});
         renderPanel();
       });
       $('#envelope-generate')?.addEventListener('click',()=>generateRig());
       $('#envelope-rebuild')?.addEventListener('click',()=>generateRig({rebuild:true}));
-    }else envelopeTool.clear();
+      if(state.liveSkin){bindSkinPoseControls(panel);$('#save-pose-skin')?.addEventListener('click',downloadPose);}
+    } else envelopeTool.clear();
   } else {
     const bone = state.selectedBone;
     panel.innerHTML = `${sectionTitle('Interactive pose', 'RIGGED FBX ONLY')}
@@ -560,12 +633,20 @@ async function generateRig({rebuild=false}={}) {
     }
     const report=JSON.parse(response.headers.get('X-WhiskeyPose-Report')||'{}');
     if (report.template!=='confirmed-markers'||report.landmarkCount!==16||report.skinMode!==state.skinMethod||report.envelopeCount!==(state.skinMethod==='envelope'?19:0)) {
-      throw Error('Worker did not confirm 16-marker skinning. Restart the worker after git pull.');
+      throw Error('Worker did not confirm 16-marker envelope skinning. Restart the worker after git pull.');
     }
     const blob=await response.blob();
     const rigged=new File([blob],inputFile.name.replace(/\.fbx$/i,'')+'_WhiskeyPose_EnvelopeRig.fbx',{type:'application/octet-stream'});
     state.savedRigMarkers=markers;
     state.savedMarkerDraft=markerDraft;
+    if(rebuild){
+      // Do not replace the SkinnedMesh: a reload would reset all pose transforms.
+      state.file=rigged;state.riggedFile=rigged;state.rigReport=report;
+      state.envelopeDirty=false;
+      saveBlob(rigged,rigged.name.replace(/\.fbx$/i,'')+'_EditedSkin.fbx');
+      notify('Skin saved from the original FBX. Your current pose is unchanged in the viewport. FBX contains rest-pose skin; save pose JSON separately.','success');
+      return;
+    }
     const loaded=await importFBX(rigged,{generated:true,report,markerDraft});
     if(!loaded){saveBlob(rigged,rigged.name);throw Error('FBX was generated but the viewport could not load it; file downloaded for review.');}
     state.envelopeDirty=false;
@@ -573,9 +654,9 @@ async function generateRig({rebuild=false}={}) {
     $('#toggle-skeleton').classList.add('toggled');
     if(state.skeletonHelper)state.skeletonHelper.visible=true;
     setTab('skin');
-    notify('Rig generated ('+report.skinMode+'): '+state.stats.bones+' bones. Inspect deformation and fallback counts.', 'success');
+    notify(`Rig generated (${report.skinMode}): ${state.stats.bones} bones. Inspect deformation and fallback counts.`, 'success');
   } catch(error){
-    notify('Envelope Skin failed: '+error.message,'error');
+    notify(`Envelope Skin failed: ${error.message}`,'error');
     console.error('Envelope Skin failed:',error);
   } finally {
     state.processing=false;
@@ -593,6 +674,7 @@ function fileAsBase64(file) {
 }
 async function exportFBX() {
   if (!state.file || !state.workerReady) return;
+  if(state.liveSkin && state.envelopeDirty){setTab('skin');notify('Save Edited Skin FBX first. The current FBX does not contain your latest live envelope changes.','error');return;}
   if (!confirm('Experimental export: Blender will re-import and export the FBX. Pose transfer for existing rigs is approximate and needs manual verification. Continue?')) return;
   const button = $('#export-fbx-top');
   button.disabled = true; button.textContent = 'Exporting…';

@@ -15,6 +15,8 @@ class EnvelopeHttpTests(unittest.TestCase):
     def tearDown(self):
         self.http.shutdown();self.http.server_close();self.thread.join(timeout=2)
     def post(self,body):
+        # Wait until the previous test request releases the global processing lock.
+        with server.PROCESS_LOCK: pass
         request=urllib.request.Request(f'http://127.0.0.1:{self.http.server_port}/api/auto-rig',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'},method='POST')
         try:
             with urllib.request.urlopen(request,timeout=4) as resp:return resp.status,resp.read(),resp.headers
@@ -27,8 +29,8 @@ class EnvelopeHttpTests(unittest.TestCase):
         recorded=[]
         def blender(command,**kwargs):
             self.assertIn('--envelopes',command)
-            with open(command[command.index('--envelopes')+1],encoding='utf-8') as stream:recorded.append(json.load(stream)['envelopes']['forearm.R'])
-            with open(command[command.index('--output')+1],'wb') as stream:stream.write(b'FBX')
+            with open(command[command.index('--envelopes')+1],encoding='utf-8') as stream: recorded.append(json.load(stream)['envelopes']['forearm.R'])
+            with open(command[command.index('--output')+1],'wb') as stream: stream.write(b'FBX')
             with open(command[command.index('--report')+1],'w') as stream:json.dump({'template':'confirmed-markers','landmarkCount':16,'skinMode':'envelope','envelopeCount':19},stream)
             return type('Result',(),{'returncode':0,'stderr':'','stdout':''})()
         with patch.object(server,'find_blender',return_value='/blender'),patch.object(server.subprocess,'run',side_effect=blender):

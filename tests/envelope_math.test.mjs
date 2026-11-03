@@ -45,3 +45,34 @@ test('rejects missing or unsafe envelope parameters',()=>{
  data.envelopes.head={radius:Infinity,mode:'smooth'};
  assert.throws(()=>validateEnvelopeDraft(data,bones),/Invalid skin envelope/);
 });
+
+test('influence strength changes blended weights without painting vertices',()=>{
+ const data=fitEnvelopes(bones,bounds,[]);
+ for(const setting of Object.values(data.envelopes))setting.radius=.25;
+ const point=[.2,1.5,0];
+ const before=envelopeWeights(point,bones,data,4);
+ data.envelopes.pelvis.strength=2;
+ const after=envelopeWeights(point,bones,data,4);
+ const read=(result,name)=>result.weights.find(row=>row[0]===name)?.[1]||0;
+ assert.ok(read(after,'pelvis')>read(before,'pelvis'));
+ assert.equal(after.weights.reduce((total,x)=>total+x[1],0),1);
+});
+test('zero strength removes a bone, even when nearest fallback is used',()=>{
+ const data=fitEnvelopes(bones,bounds,[]);
+ for(const [name,setting] of Object.entries(data.envelopes)){
+   setting.radius=.002;
+   setting.strength=name==='spine'?1:0;
+ }
+ const result=envelopeWeights([100,20,30],bones,data,4);
+ assert.deepEqual(result.weights,[['spine',1]]);
+});
+test('cached-distance evaluation matches direct spatial calculation',async()=>{
+ const {distanceSegmentSquared,weightsForDistances}=await import('../src/envelope_math.js');
+ const data=fitEnvelopes(bones,bounds,[]);
+ const point=[1,1.5,.25];
+ const ds=Float32Array.from(bones.map(b=>distanceSegmentSquared(point,b.head,b.tail)));
+ const direct=envelopeWeights(point,bones,data,4);
+ const cached=weightsForDistances(bones.map(b=>b.name),ds,data,4);
+ assert.deepEqual(cached.weights.map(row=>row[0]),direct.weights.map(row=>row[0]));
+ assert.equal(cached.fallback,direct.fallback);
+});

@@ -23,6 +23,8 @@ class WorkerMarkerTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join(timeout=2)
     def post(self, body):
+        # The HTTP client can finish reading before the background worker releases its lock.
+        with server.PROCESS_LOCK: pass
         data=json.dumps(body).encode('utf-8')
         request=urllib.request.Request(self.url,data=data,headers={'Content-Type':'application/json'},method='POST')
         try:

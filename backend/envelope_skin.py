@@ -24,11 +24,14 @@ def validate_envelopes(payload, bones):
             raise ValueError(f'Invalid envelope: {name}')
         radius = row.get('radius')
         mode = row.get('mode')
+        strength = row.get('strength', 1.0)
         if type(radius) not in (float, int) or not isfinite(radius) or not .002 <= radius <= .4:
             raise ValueError(f'Invalid radius for envelope {name}')
         if mode not in MODES:
             raise ValueError(f'Invalid mode for envelope {name}')
-        valid[name] = {'radius': float(radius), 'mode': mode}
+        if type(strength) not in (float, int) or not isfinite(strength) or not 0 <= strength <= 3:
+            raise ValueError(f'Invalid strength for envelope {name}')
+        valid[name] = {'radius': float(radius), 'mode': mode, 'strength': float(strength)}
     return valid
 
 
@@ -52,12 +55,18 @@ def envelope_weights(point, bones, envelopes, height, limit=4):
         raise ValueError('Invalid skin height or influence limit')
     scores = []
     nearest = (float('inf'), None)
+    nearest_enabled = (float('inf'), None)
     rigid = []
     for bone in bones:
         name = bone['name']
         d2 = distance_segment_squared(point, bone['head'], bone['tail'])
         if d2 < nearest[0]:
             nearest = (d2, name)
+        strength = envelopes[name].get('strength', 1.0)
+        if strength > 0 and d2 < nearest_enabled[0]:
+            nearest_enabled = (d2, name)
+        if strength <= 0:
+            continue
         radius = height * envelopes[name]['radius']
         if d2 >= radius * radius:
             continue
@@ -65,11 +74,11 @@ def envelope_weights(point, bones, envelopes, height, limit=4):
         if envelopes[name]['mode'] == 'rigid':
             rigid.append((normalized, name))
         else:
-            scores.append(((1 - normalized * normalized)**2, name))
+            scores.append((((1 - normalized * normalized)**2) * strength, name))
     if rigid:
         return [(min(rigid)[1], 1.0)], False
     if not scores:
-        return [(nearest[1], 1.0)], True
+        return [((nearest_enabled[1] or nearest[1]), 1.0)], True
     scores.sort(key=lambda item: (-item[0], item[1]))
     scores = scores[:limit]
     total = sum(score for score, _ in scores)
