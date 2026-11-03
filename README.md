@@ -70,3 +70,22 @@ No user FBX files are stored in the repository or uploaded to remote services by
 ## Git workflow
 
 Development is on **`main`** with small, reviewable commits. Approved milestones become tagged baselines. Pull updates locally with `git pull`. Do not commit user character assets; `.fbx`, `.glb` and `.gltf` are git-ignored by default.
+
+
+## Blender Engine setup (Steam + standalone)
+
+Alpha 0.1.1 adds **External Engines**. The local Python worker automatically searches
+for Blender in Steam installations (including additional libraries from
+`steamapps/libraryfolders.vdf`), Blender Foundation installations and `PATH`.
+
+1. Run `start-whiskeypose.cmd` and `start-worker.cmd` in separate windows.
+2. Click the **gear icon** next to **Blender worker** in the lower-right corner.
+3. Choose a detected installation, click **Test Engine**, then **Use This Blender**.
+4. If Blender is not listed, click **Browse...** to choose `blender.exe` via the
+   native dialog. You can paste the full path if the dialog is unavailable.
+5. **Use Auto** resets to autodetection. A custom selection survives `git pull`.
+
+Selections are kept in `%APPDATA%\WhiskeyPose\engines.json` on Windows (or
+`~/.config/WhiskeyPose/engines.json` on Linux), not in the Git repository.
+No Blender installation is downloaded or modified. Everything runs locally.
+See `docs/BLENDER_ENGINES.md` for troubleshooting and security considerations.

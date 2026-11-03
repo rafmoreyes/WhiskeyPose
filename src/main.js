@@ -11,7 +11,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.1 <span class="version-note">AUTO-RIG PILOT</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.1.1 <span class="version-note">ENGINE SETUP</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -46,9 +46,26 @@ app.innerHTML = `
       </div>
       <div id="notification" class="notification" role="status" aria-live="polite"></div>
     </section>
-    <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="retry-worker" title="Check the local export worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
+    <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="engine-settings-open" class="worker-config-button" title="Configure External Engines" aria-label="Configure External Engines">⚙</button><button id="retry-worker" title="Check the local export worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
   </div>
   <input id="file-input" type="file" accept=".fbx" hidden />
+  <div id="engines-overlay" class="engines-overlay hidden">
+    <section class="engines-dialog" role="dialog" aria-modal="true" aria-labelledby="engines-title">
+      <header class="engines-head"><div><small>LOCAL PROCESSING</small><h2 id="engines-title">External Engines</h2></div><button id="engines-close" aria-label="Close settings">✕</button></header>
+      <div class="engines-body">
+        <div class="engines-current"><div class="engines-current-icon">B</div><div><strong>Blender Engine</strong><p id="engine-active">Checking installation...</p></div><span id="engine-ready" class="engine-pill">Offline</span></div>
+        <p class="engine-help">Blender runs in the background, locally on this computer. Steam and standalone installations are supported. Nothing is installed or downloaded automatically.</p>
+        <label class="engine-field-label" for="engine-candidates">Detected installations</label>
+        <select id="engine-candidates" class="engine-control"><option value="">Checking...</option></select>
+        <label class="engine-field-label" for="engine-manual-path">Blender executable</label>
+        <input id="engine-manual-path" class="engine-control" type="text" spellcheck="false" autocomplete="off" placeholder="Select blender.exe or paste its full path" />
+        <div class="engine-actions"><button id="engine-scan">↻ Scan</button><button id="engine-browse">Browse...</button><button id="engine-auto">Use Auto</button></div>
+        <div class="engine-actions engine-primary-actions"><button id="engine-test">Test Engine</button><button id="engine-use">Use This Blender</button></div>
+        <p id="engine-message" class="engine-message" role="status" aria-live="polite">Start start-worker.cmd to enable engine settings.</p>
+        <p class="engine-footnote">Your selection is saved locally outside the Git repository. Use Auto to return to automatic detection. Browse opens a native Windows file dialog when supported by Python.</p>
+      </div>
+    </section>
+  </div>
 `;
 
 const $ = (selector) => document.querySelector(selector);
@@ -290,6 +307,50 @@ function downloadPose() {
   saveBlob(new Blob([JSON.stringify(posePayload(), null, 2)], {type:'application/json'}), filename);
   notify(`Saved ${filename}.`, 'success');
 }
+async function engineRequest(url, data) {
+  const response = await fetch(url, data === undefined ? {signal:AbortSignal.timeout(4000)} : {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Engine service error (${response.status})`);
+  return payload;
+}
+function engineMessage(message, kind = '') {
+  const field = $('#engine-message');
+  field.textContent = message;
+  field.dataset.kind = kind;
+}
+async function refreshEngines(prefill = false) {
+  const info = await engineRequest('/api/engines');
+  const list = $('#engine-candidates');
+  list.replaceChildren();
+  if (!info.candidates.length) list.add(new Option('No Blender installations found', ''));
+  for (const item of info.candidates) {
+    list.add(new Option(`${item.source} · ${item.path}`, item.path));
+  }
+  $('#engine-active').textContent = info.active ? `${info.active.source} · ${info.active.path}` : 'No installation found';
+  $('#engine-ready').textContent = info.active ? 'Detected' : 'Not found';
+  $('#engine-ready').classList.toggle('ready', Boolean(info.active));
+  if (info.active) list.value = info.active.path;
+  if (prefill || !$('#engine-manual-path').value.trim()) {
+    $('#engine-manual-path').value = info.active?.path || info.savedPath || '';
+  }
+  engineMessage(info.active ? 'Blender detected. Use Test Engine to verify its version.' : 'No Blender found. Browse or paste the path to blender.exe.');
+}
+async function openEngineSettings() {
+  $('#engines-overlay').classList.remove('hidden');
+  $('#engine-manual-path').focus();
+  engineMessage('Scanning local Blender installations...');
+  try { await refreshEngines(true); }
+  catch (error) { engineMessage(`Worker unavailable. Run start-worker.cmd. ${error.message}`, 'error'); }
+}
+function closeEngineSettings() { $('#engines-overlay').classList.add('hidden'); }
+async function engineAction(label, fn) {
+  engineMessage(label);
+  try { await fn(); }
+  catch (error) { engineMessage(error.message, 'error'); }
+}
+
 async function checkWorker() {
   $('#worker-status').textContent = 'Checking';
   try {
@@ -378,6 +439,35 @@ $('#toggle-grid').addEventListener('click', () => {state.gridVisible = !state.gr
 $('#toggle-wire').addEventListener('click', () => {state.wire = !state.wire; updateWire(); $('#toggle-wire').classList.toggle('toggled', state.wire); if(state.activeTab==='skin')renderPanel();});
 $('#toggle-skeleton').addEventListener('click', () => {state.bonesVisible = !state.bonesVisible; if (state.skeletonHelper) state.skeletonHelper.visible = state.bonesVisible && !!state.bones.length; $('#toggle-skeleton').classList.toggle('toggled', state.bonesVisible);});
 $('#retry-worker').addEventListener('click', checkWorker);
+$('#engine-settings-open').addEventListener('click', openEngineSettings);
+$('#engines-close').addEventListener('click', closeEngineSettings);
+$('#engines-overlay').addEventListener('click', (event) => { if (event.target === $('#engines-overlay')) closeEngineSettings(); });
+window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !$('#engines-overlay').classList.contains('hidden')) closeEngineSettings(); });
+$('#engine-candidates').addEventListener('change', (event) => { if (event.target.value) $('#engine-manual-path').value = event.target.value; });
+$('#engine-scan').addEventListener('click', () => engineAction('Scanning...', () => refreshEngines(true)));
+$('#engine-browse').addEventListener('click', () => engineAction('Opening the native file chooser...', async () => {
+  const result = await engineRequest('/api/engines/browse', {});
+  if (result.path) { $('#engine-manual-path').value = result.path; engineMessage('Executable selected. Click Test Engine or Use This Blender.', 'success'); }
+  else engineMessage('Selection cancelled. You can paste an executable path instead.');
+}));
+$('#engine-test').addEventListener('click', () => engineAction('Testing Blender executable...', async () => {
+  const result = await engineRequest('/api/engines/test', {path: $('#engine-manual-path').value.trim() || null});
+  engineMessage(`Blender ${result.version} confirmed. Click Use This Blender to save it.`, 'success');
+}));
+$('#engine-use').addEventListener('click', () => engineAction('Validating and saving...', async () => {
+  const path = $('#engine-manual-path').value.trim();
+  if (!path) throw new Error('Choose a Blender executable first, or click Use Auto.');
+  const result = await engineRequest('/api/engines/select', {path});
+  await refreshEngines(true);
+  await checkWorker();
+  engineMessage(`Blender ${result.version} saved as the preferred engine.`, 'success');
+}));
+$('#engine-auto').addEventListener('click', () => engineAction('Restoring automatic detection...', async () => {
+  await engineRequest('/api/engines/select', {path:null});
+  await refreshEngines(true);
+  await checkWorker();
+  engineMessage('Automatic Blender selection enabled.', 'success');
+}));
 document.querySelectorAll('[data-tab]').forEach((el) => el.addEventListener('click', () => setTab(el.dataset.tab)));
 const dropzone = $('#dropzone');
 dropzone.addEventListener('dragover', (event) => { event.preventDefault(); $('#drop-overlay').classList.remove('hidden'); });

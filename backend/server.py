@@ -18,6 +18,9 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 
+from blender_engine import (active_blender, browse_blender, discover_blenders,
+                            read_config, save_path, test_blender)
+
 HOST = '127.0.0.1'
 PORT = 8765
 MAX_POST_BYTES = 75 * 1024 * 1024
@@ -25,20 +28,12 @@ MAX_FBX_BYTES = 50 * 1024 * 1024
 ROUNDTRIP_SCRIPT = Path(__file__).with_name('fbx_roundtrip.py')
 AUTORIG_SCRIPT = Path(__file__).with_name('auto_rig.py')
 PROCESS_LOCK = Lock()
+ENGINE_DIALOG_LOCK = Lock()
 
 
 def find_blender() -> str | None:
-    override = os.environ.get('BLENDER_PATH', '').strip().strip('"')
-    if override and Path(override).is_file():
-        return override
-    found = shutil.which('blender')
-    if found:
-        return found
-    if os.name == 'nt':
-        paths = glob.glob(r'C:\Program Files\Blender Foundation\Blender *\blender.exe')
-        if paths:
-            return sorted(paths, reverse=True)[0]
-    return None
+    chosen = active_blender()
+    return chosen['path'] if chosen else None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -52,23 +47,35 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path != '/api/health':
-            self.reply_json(404, {'error': 'Not found'})
+        if self.path == '/api/health':
+            blender = active_blender()
+            self.reply_json(200, {
+                'service': 'whiskeypose-local-worker',
+                'version': '0.1.1',
+                'blenderAvailable': bool(blender),
+                'blenderPath': blender['path'] if blender else None,
+                'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(blender),
+            })
             return
-        self.reply_json(200, {
-            'service': 'whiskeypose-local-worker',
-            'version': '0.1.0',
-            'blenderAvailable': bool(find_blender()),
-            'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(find_blender()),
-        })
+        if self.path == '/api/engines':
+            self.reply_json(200, {
+                'active': active_blender(),
+                'candidates': discover_blenders(),
+                'savedPath': read_config().get('blenderPath'),
+            })
+            return
+        self.reply_json(404, {'error': 'Not found'})
 
     def do_POST(self) -> None:
+        if self.path in ('/api/engines/select', '/api/engines/test', '/api/engines/browse'):
+            self.engine_action()
+            return
         if self.path not in ('/api/export-fbx', '/api/auto-rig'):
             self.reply_json(404, {'error': 'Not found'})
             return
         blender = find_blender()
         if not blender:
-            self.reply_json(503, {'error': 'Blender not found. Install Blender or set BLENDER_PATH.'})
+            self.reply_json(503, {'error': 'Blender not found. Open External Engines to select blender.exe.'})
             return
         if not PROCESS_LOCK.acquire(blocking=False):
             self.reply_json(409, {'error': 'Blender is already processing another job.'})
@@ -78,6 +85,49 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             PROCESS_LOCK.release()
 
+    def engine_action(self) -> None:
+        """Local-only configuration. The browser cannot discover arbitrary disk paths."""
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if length < 0 or length > 8192:
+                self.reply_json(413, {'error': 'Engine settings request is too large.'})
+                return
+            if 'application/json' not in self.headers.get('Content-Type', ''):
+                self.reply_json(415, {'error': 'Expected application/json.'})
+                return
+            payload = json.loads(self.rfile.read(length).decode('utf-8'))
+            if not isinstance(payload, dict):
+                raise ValueError('Invalid engine settings.')
+            if self.path == '/api/engines/browse':
+                if not ENGINE_DIALOG_LOCK.acquire(blocking=False):
+                    self.reply_json(409, {'error': 'File chooser is already open.'})
+                    return
+                try:
+                    chosen = browse_blender()
+                except RuntimeError as exc:
+                    self.reply_json(503, {'error': str(exc)})
+                    return
+                finally:
+                    ENGINE_DIALOG_LOCK.release()
+                self.reply_json(200, {'path': chosen, 'cancelled': chosen is None})
+                return
+            path = payload.get('path')
+            if path is not None and (not isinstance(path, str) or len(path) > 2048):
+                raise ValueError('Invalid Blender path.')
+            if self.path == '/api/engines/test':
+                self.reply_json(200, test_blender(path or None))
+                return
+            if path:
+                report = test_blender(path)
+                save_path(path)
+            else:
+                save_path(None)
+                report = {'ok': True, 'mode': 'auto'}
+            self.reply_json(200, {**report, 'active': active_blender()})
+        except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
+            self.reply_json(422, {'error': str(exc)[:320]})
+        except OSError as exc:
+            self.reply_json(500, {'error': 'Cannot save engine settings: ' + str(exc)[:240]})
     def process_fbx(self, blender: str) -> None:
         try:
             length = int(self.headers.get('Content-Length', '0'))
@@ -138,5 +188,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     print(f'WhiskeyPose Blender worker: http://{HOST}:{PORT}')
     print('Blender:', find_blender() or 'NOT FOUND — set BLENDER_PATH')
-    print('Alpha 0.1 local humanoid rig/skin + FBX export (experimental).')
+    print('Alpha 0.1.1 local rig/skin + Steam/standalone Blender selection.')
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
