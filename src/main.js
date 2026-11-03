@@ -11,16 +11,16 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.0 <span class="version-note">TECH PREVIEW</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.1 <span class="version-note">AUTO-RIG PILOT</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
-        <button class="step" data-tab="rig"><span class="step-number">02</span><span><strong>Rig</strong><small>Skeleton inspector</small></span><span class="step-arrow">›</span></button>
-        <button class="step" data-tab="skin"><span class="step-number">03</span><span><strong>Skin</strong><small>Deformation inspector</small></span><span class="step-arrow">›</span></button>
+        <button class="step" data-tab="rig"><span class="step-number">02</span><span><strong>Rig</strong><small>Generate humanoid rig</small></span><span class="step-arrow">›</span></button>
+        <button class="step" data-tab="skin"><span class="step-number">03</span><span><strong>Skin</strong><small>Auto weights inspector</small></span><span class="step-arrow">›</span></button>
         <button class="step" data-tab="pose"><span class="step-number">04</span><span><strong>Pose</strong><small>Bone rotations</small></span><span class="step-arrow">›</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="side-note"><span class="note-spark">✳</span><div><strong>Built for artists.</strong><p>FBX-first workflow. Rig and skin generation are next milestones.</p></div></div>
+        <div class="side-note"><span class="note-spark">✳</span><div><strong>Built for artists.</strong><p>FBX-first workflow. Experimental T/A-pose rig and skin generation.</p></div></div>
         <a class="repo-link" href="https://github.com/rafmoreyes/WhiskeyPose" target="_blank" rel="noopener noreferrer">↗ &nbsp; Project repository</a>
       </div>
     </aside>
@@ -54,7 +54,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, wire: false, gridVisible: true, bonesVisible: false };
 let notifyTimer;
 
 function notify(message, type = 'info') {
@@ -160,7 +160,7 @@ function readStats(root) {
   return {meshes, skinned, bones: [...bones], stats: {meshes: meshes.length, skinned: skinned.length, vertices, triangles: Math.round(triangles), bones: bones.size, materials: materialSet.size, animations: root.animations?.length || 0}};
 }
 
-async function importFBX(file) {
+async function importFBX(file, options = {}) {
   if (!file || !file.name.toLowerCase().endsWith('.fbx')) { notify('Please choose an .fbx file.', 'error'); return; }
   if (file.size > 200 * 1024 * 1024) { notify('This prototype accepts FBX files up to 200 MB.', 'error'); return; }
   notify(`Reading ${file.name}…`);
@@ -170,7 +170,7 @@ async function importFBX(file) {
     const {meshes, skinned, bones, stats} = readStats(fbx);
     if (!meshes.length) throw new Error('The FBX does not contain a displayable mesh.');
     destroyModel();
-    state.file = file; state.model = fbx; state.meshes = meshes; state.skinnedMeshes = skinned; state.bones = bones; state.stats = stats;
+    state.file = file; state.sourceFile = options.generated ? (state.sourceFile || file) : file; state.riggedFile = options.generated ? file : null; state.rigReport = options.report || null; state.model = fbx; state.meshes = meshes; state.skinnedMeshes = skinned; state.bones = bones; state.stats = stats;
     for (const bone of bones) state.rest.set(bone, {quaternion: bone.quaternion.clone(), position: bone.position.clone(), scale: bone.scale.clone()});
     state.skeletonHelper = new THREE.SkeletonHelper(fbx);
     state.skeletonHelper.visible = state.bonesVisible && bones.length > 0;
@@ -185,9 +185,11 @@ async function importFBX(file) {
     state.selectedBone = bones[0] || null;
     renderPanel(); updateExportUI();
     notify(`Loaded ${file.name}. ${stats.bones ? `${stats.bones} bones detected.` : 'No skeleton detected yet.'}`, 'success');
+    return true;
   } catch (error) {
     console.error('FBX import failed:', error);
     notify(`Could not import FBX: ${error.message || 'unknown parser error'}`, 'error');
+    return false;
   }
 }
 
@@ -219,26 +221,32 @@ function renderPanel() {
       ${state.file ? `<div class="asset-card"><div class="asset-file-icon">FBX</div><div><strong title="${escapeHtml(state.file.name)}">${escapeHtml(state.file.name)}</strong><small>${(state.file.size / (1024 * 1024)).toFixed(2)} MB · LOCAL FILE</small></div></div>` : `<div class="asset-placeholder">No file imported yet.<br/>Choose a character FBX to start.</div>`}
       ${sectionTitle('Geometry diagnostics')}
       <div class="metrics">${metric('Meshes', s?.meshes ?? '—')}${metric('Vertices', s?.vertices ?? '—')}${metric('Triangles', s?.triangles ?? '—')}${metric('Materials', s?.materials ?? '—')}${metric('Skinned meshes', s?.skinned ?? '—')}${metric('Bones', s?.bones ?? '—')}${metric('Animation clips', s?.animations ?? '—')}</div>
-      ${information('Alpha 0.0 is an FBX validation workspace. AI auto-rig and auto-skin are not integrated yet; their first feasibility test is the next milestone.')}
+      ${information('Alpha 0.1: experimental procedural Auto-Rig + Auto-Skin for upright humanoids in A/T pose. Requires the Blender worker. This is not AI-based yet.')}
       <button class="full-button gold" id="panel-import">＋ &nbsp; Import FBX</button>
       `;
     $('#panel-import').addEventListener('click', selectFile);
   } else if (state.activeTab === 'rig') {
-    panel.innerHTML = `${sectionTitle('Skeleton detection', 'RIG DIAGNOSTICS')}
-      <div class="headline-stat"><strong>${s ? s.bones : '—'}</strong><span>Detected bones</span></div>
-      ${s?.bones ? `<div class="bone-scroll">${state.bones.slice(0,120).map((b,i)=>`<button class="bone-item" data-select-bone="${i}">${escapeHtml(b.name || `Bone ${i + 1}`)}</button>`).join('')}</div>` : information(s ? 'This mesh contains no detectable skeleton. Automatic rig generation is planned for the next engine milestone.' : 'Import an FBX to inspect its skeleton hierarchy.')}
-      ${information('Current scope: inspect imported bones. Automatic skeleton generation and interactive bone placement are not available in this build.')}`;
+    const canRig = Boolean(s && !s.bones && state.workerReady && !state.processing);
+    panel.innerHTML = `${sectionTitle('Humanoid auto-rig', 'ALPHA 0.1 PILOT')}
+      <div class="headline-stat"><strong>${s ? s.bones : '—'}</strong><span>${s?.bones ? 'Detected bones' : 'Skeleton not yet generated'}</span></div>
+      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : '✳  Auto-Rig + Auto-Skin'}</button>` : ''}
+      ${s && !s.bones && !state.workerReady ? information('Start start-worker.cmd in a second CMD window. Blender must be installed. Then click ↻ next to Blender worker below.') : ''}
+      ${s?.bones ? `<div class="bone-scroll">${state.bones.slice(0,120).map((b,i)=>`<button class="bone-item" data-select-bone="${i}">${escapeHtml(b.name || `Bone ${i + 1}`)}</button>`).join('')}</div>` : information(s ? 'Experimental generator: upright, roughly symmetric humanoids in A/T pose. Not intended for creatures, nonstandard limbs or already-rigged FBX.' : 'Import a character FBX to begin.')}
+      ${state.riggedFile ? `<button class="full-button gold" id="download-rig">⇩ &nbsp; Download rigged FBX</button>` : ''}
+      ${state.rigReport ? information(`Generated ${state.rigReport.bones} bones. Weight methods: ${state.rigReport.weights.map(x => x.weights).join(', ')}. Check all joint deformations before production use.`) : information('This first auto-rig uses a procedural skeleton template plus Blender bone-heat weights (with proximity fallback). AI inference will be evaluated separately.')}`;
     panel.querySelectorAll('[data-select-bone]').forEach((el) => el.addEventListener('click', () => {state.selectedBone = state.bones[Number(el.dataset.selectBone)]; setTab('pose');}));
+    $('#auto-rig')?.addEventListener('click', generateRig);
+    $('#download-rig')?.addEventListener('click', () => saveBlob(state.riggedFile, state.riggedFile.name));
   } else if (state.activeTab === 'skin') {
     panel.innerHTML = `${sectionTitle('Skinning diagnostics', 'DEFORMATION')}
       <div class="headline-stat"><strong>${s ? s.skinned : '—'}</strong><span>Skinned meshes</span></div>
       ${state.skinnedMeshes.length ? `<div class="mesh-list">${state.skinnedMeshes.map((m) => `<div class="mesh-row"><span class="mesh-dot"></span>${escapeHtml(m.name || 'Unnamed mesh')}<small>${m.skeleton?.bones?.length || 0} bones</small></div>`).join('')}</div>` : information(s ? 'No skinned meshes found. This character requires weight generation before it can deform.' : 'Import an FBX to inspect skin bindings.')}
       <button class="full-button" id="skin-wire">${state.wire ? 'Hide wireframe' : 'Show wireframe'}</button>
-      ${information('Automatic skin weights, weight editing and deformation quality tests are future milestones. This tab reports existing FBX skin data only.')}`;
+      ${information(state.rigReport ? `Auto-Skin generated using ${state.rigReport.weights.map(x => x.weights).join(', ')}. Inspect shoulder, hip, elbow and knee bends. No weight paint editor yet.` : 'Automatic weights can be generated from the Rig tab for unrigged T/A-pose humanoids. Existing FBX skin is inspected without modification.')}`;
     $('#skin-wire').addEventListener('click', () => {state.wire = !state.wire; $('#toggle-wire').classList.toggle('toggled', state.wire); updateWire(); renderPanel();});
   } else {
     const bone = state.selectedBone;
-    panel.innerHTML = `${sectionTitle('Interactive pose', 'EXISTING RIGS ONLY')}
+    panel.innerHTML = `${sectionTitle('Interactive pose', 'RIGGED FBX ONLY')}
       ${state.bones.length ? `<label class="field-label" for="bone-select">SELECT BONE</label><select id="bone-select" class="bone-select">${state.bones.map((b,i) => `<option value="${i}" ${bone===b ? 'selected' : ''}>${escapeHtml(b.name || `Bone ${i+1}`)}</option>`).join('')}</select><div id="rotation-controls"></div><div class="panel-row"><button class="half-button" id="reset-bone">Reset bone</button><button class="half-button" id="reset-pose">Reset all</button></div><button class="full-button gold" id="save-pose">⇩ &nbsp; Save pose JSON</button>` : information(state.file ? 'This FBX has no skeleton. You can inspect the model, but posing requires rig generation first.' : 'Import an already-rigged FBX to test simple bone rotations.')}
       ${information('Rotation controls are a diagnostic tool, not a production IK solver. Image-driven posing and IK are scheduled for later Alpha versions.')}`;
     if (state.bones.length) {
@@ -301,6 +309,41 @@ function updateExportUI() {
   button.disabled = !state.file || !state.workerReady;
   button.title = !state.file ? 'Import an FBX first' : !state.workerReady ? 'Start the Blender worker (start-worker.cmd)' : 'Experimental Blender FBX round-trip';
 }
+async function generateRig() {
+  if (!state.file || state.stats?.bones || !state.workerReady || state.processing) return;
+  const inputFile = state.file;
+  state.processing = true;
+  renderPanel();
+  notify('Blender is generating an experimental humanoid skeleton and skin weights…');
+  try {
+    const payload = {name: inputFile.name, fbxBase64: await fileAsBase64(inputFile), method: 'auto'};
+    const response = await fetch('/api/auto-rig', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({error: response.statusText}));
+      throw new Error(error.error || response.statusText);
+    }
+    const report = JSON.parse(response.headers.get('X-WhiskeyPose-Report') || '{}');
+    const blob = await response.blob();
+    const rigged = new File([blob], inputFile.name.replace(/\.fbx$/i, '') + '_WhiskeyPose_Rigged.fbx', {type:'application/octet-stream'});
+    const loaded = await importFBX(rigged, {generated:true, report});
+    if (!loaded) {
+      saveBlob(rigged, rigged.name);
+      throw new Error('Blender generated an FBX, but the viewport could not parse it. The file was downloaded for inspection.');
+    }
+    state.bonesVisible = true;
+    $('#toggle-skeleton').classList.add('toggled');
+    if (state.skeletonHelper) state.skeletonHelper.visible = true;
+    setTab('rig');
+    notify(`Rig generated: ${state.stats.bones} bones, ${state.stats.skinned} skinned mesh(es). Review joints before using it.`, 'success');
+  } catch (error) {
+    notify(`Auto-Rig failed: ${error.message}`, 'error');
+    console.error('Auto-Rig failed:', error);
+  } finally {
+    state.processing = false;
+    renderPanel();
+  }
+}
+
 function fileAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

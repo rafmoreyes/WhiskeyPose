@@ -54,3 +54,12 @@
 ## Out of scope for first MVP
 
 Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime mocap, arbitrary creature anatomy.
+
+## Alpha 0.1.0 — experimental humanoid Auto-Rig + Auto-Skin
+
+- Procedural 19-bone humanoid template generated from FBX mesh bounds (Z-up after Blender import).
+- Blender bone-heat automatic skinning with a normalized 4-influence spatial fallback.
+- Generate/download a new rigged FBX, inspect joint rotations in the existing browser pose panel.
+- Requires Windows Blender worker and unrigged upright T/A-pose humanoid.
+- Model-fitting/weight quality requires user validation; **not AI-based yet**.
+- Next: better skeleton fitting, editable joint landmarks, bone-weight correction and rigged export verification.
