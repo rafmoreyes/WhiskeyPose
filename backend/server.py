@@ -18,7 +18,6 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 
-from marker_rig import validate_payload
 from blender_engine import (active_blender, browse_blender, discover_blenders,
                             read_config, save_path, test_blender)
 
@@ -52,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
             blender = active_blender()
             self.reply_json(200, {
                 'service': 'whiskeypose-local-worker',
-                'version': '0.2.2',
+                'version': '0.1.1',
                 'blenderAvailable': bool(blender),
                 'blenderPath': blender['path'] if blender else None,
                 'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(blender),
@@ -150,17 +149,10 @@ class Handler(BaseHTTPRequestHandler):
                 report = directory / 'report.json'
                 source.write_bytes(content)
                 if self.path == '/api/auto-rig':
-                    # Never silently fall back to the old bounding-box rig.
-                    if payload.get('skeletonApproved') is not True:
-                        self.reply_json(400, {'error': 'Approve skeleton preview before generating rig and skin.'}); return
-                    landmarks = payload.get('markers')
-                    validate_payload(landmarks)
-                    marker_path = directory / 'markers.json'
-                    marker_path.write_text(json.dumps(landmarks), encoding='utf-8')
                     method = payload.get('method', 'auto')
                     if method not in ('auto', 'proximity'):
                         self.reply_json(400, {'error': 'Unsupported weight method.'}); return
-                    command = [blender, '--background', '--factory-startup', '--python', str(AUTORIG_SCRIPT), '--', '--input', str(source), '--output', str(target), '--report', str(report), '--method', method, '--markers', str(marker_path)]
+                    command = [blender, '--background', '--factory-startup', '--python', str(AUTORIG_SCRIPT), '--', '--input', str(source), '--output', str(target), '--report', str(report), '--method', method]
                 else:
                     pose = payload.get('pose')
                     if pose is not None and (not isinstance(pose, dict) or not isinstance(pose.get('bones'), list)):
