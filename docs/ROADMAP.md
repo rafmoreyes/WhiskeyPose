@@ -82,3 +82,16 @@ Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime moca
 - Worker validates and consumes normalized, confirmed landmarks, then creates bones before automatic weights.
 - Reset suggestions clears confirmation; edit-source workflow allows regenerating from new marker positions.
 - Manual real-FBX tests and deformation QA are still required.
+
+
+### Alpha 0.2.2 — Anatomy & Skeleton Preview (candidate)
+
+- [x] 16 anatomical markers: add bilateral Shoulder and central Neck.
+- [x] Pure-JS 19-bone preview using matching bone hierarchy/positions from the Python solver.
+- [x] Explicit *Approve skeleton* gate; moving landmarks revokes approval.
+- [x] Worker requires 16-marker payload v2 and explicit skeleton approval before creating skin.
+- [x] Save markers as JSON v3; import prior v1/v2 drafts with missing landmarks unconfirmed.
+- [x] Automated JavaScript, Python and coordinate-parity regression tests.
+- [ ] Artist validation of UI and generated Blender FBX on real A-Pose/T-Pose models.
+- [ ] Blender/Unreal round-trip validation of vertex weights, axes and clothing deformation.
+- [ ] Future: expose hip pivots if pelvis width heuristics are insufficient.

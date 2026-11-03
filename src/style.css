@@ -51,3 +51,11 @@
 /* Alpha 0.2.1: keep 13-point Inspector usable on shorter displays */
 .marker-list{max-height:min(52vh,550px);overflow-y:auto;padding-right:3px;scrollbar-width:thin;scrollbar-color:#485758 transparent}
 .marker-row{min-height:50px}
+
+/* Alpha 0.2.2 — reviewed 19-bone skeleton, before any skin calculation */
+.skeleton-review{background:#222b2d;border:1px solid #43615e;border-radius:8px;margin:15px 0 12px;padding:12px;display:flex;flex-direction:column;gap:9px}
+.skeleton-review strong{font-size:11px;color:#dcece5}
+.skeleton-review small{font-size:10px;line-height:1.6;color:#a7c8c2}
+.skeleton-review.approved{background:#21332b;border-color:#56836a}
+.skeleton-review.approved strong{color:#9fe2bd}
+.skeleton-review .full-button{margin-top:2px}

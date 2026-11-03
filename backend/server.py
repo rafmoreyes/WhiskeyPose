@@ -52,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
             blender = active_blender()
             self.reply_json(200, {
                 'service': 'whiskeypose-local-worker',
-                'version': '0.2.1',
+                'version': '0.2.2',
                 'blenderAvailable': bool(blender),
                 'blenderPath': blender['path'] if blender else None,
                 'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(blender),
@@ -151,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
                 source.write_bytes(content)
                 if self.path == '/api/auto-rig':
                     # Never silently fall back to the old bounding-box rig.
+                    if payload.get('skeletonApproved') is not True:
+                        self.reply_json(400, {'error': 'Approve skeleton preview before generating rig and skin.'}); return
                     landmarks = payload.get('markers')
                     validate_payload(landmarks)
                     marker_path = directory / 'markers.json'

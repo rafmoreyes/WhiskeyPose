@@ -4,7 +4,7 @@
 
 WhiskeyPose is a small, FBX-first web application. The eventual goal is to import an unrigged character, automatically create a skeleton and skin weights, edit a pose, and export a usable FBX without a heavyweight DCC workflow.
 
-## Current version — Alpha 0.2.1 (marker-driven Auto-Rig pilot)
+## Current version — Alpha 0.2.2 (marker-driven Auto-Rig pilot)
 
 **Implemented:**
 - Import/inspect `.fbx` models in the browser, with viewport orbit/pan/zoom, framing, grid, wireframe and bone visualization.
@@ -103,3 +103,22 @@ The Alpha 0.2.0 preview showed markers that the Auto-Rig explicitly ignored. Alp
 Blender and worker are **required** for rig generation, but not for marker placement. No learned AI, cloud service or new dependencies have been added. The app does not make topology-aware skin corrections. This iteration targets upright front-facing humanoids only.
 
 **Caution:** tests verify the marker-to-bone math and HTTP forwarding, not real Blender FBX deformation. Check bones, axis conversion, scale and skinning on actual character files before adopting results. Read [docs/ALPHA_0_2_1_MARKER_PIPELINE_TESTS.md](docs/ALPHA_0_2_1_MARKER_PIPELINE_TESTS.md).
+
+
+## Alpha 0.2.2 — Anatomy & Skeleton Preview
+
+This is an incremental upgrade to the existing local architecture, **with no new external dependencies**.
+
+1. Start the Vite UI (`start-whiskeypose.cmd`) and Python/Blender worker (`start-worker.cmd`) as before.
+2. Import an unrigged FBX and open **Rig**.
+3. Place **16 markers**: Chin, Neck, Chest, Groin; bilateral Shoulders, Elbows, Wrists, Knees, Heels and Foot points. Center markers (Neck, Chest, Groin, Chin) help define the torso, neck and head alignment. Shoulder markers define the arm-pivot locations.
+4. Click **Confirm all**, then enable **Skeleton preview**. The cyan bone segments are calculated from the same procedural rules used by the Python worker; the mesh is not altered and no skin is calculated at this stage.
+5. Inspect Front and Side, adjust markers, then click **Approve skeleton**. If you move a marker after approving, the approval is automatically revoked. Repeat review to reapprove.
+6. With Blender Worker ready, click **Generate Rig + Skin from 16 markers**. The worker rejects old marker payloads and requires the approved workflow flag.
+7. Inspect the generated FBX and its deformation; use **Edit source markers** to retry with corrected positions.
+
+Marker JSON files are now v3. Older v1/v2 files still load, but new Shoulder/Neck points start as suggestions and must be reviewed. The actual bone count remains **19**; this release adds explicit landmarks, not additional deform bones.
+
+### Verification limits
+
+The JavaScript preview and Python generator have automated coordinate-parity tests using matched synthetic bounds, with axis conversion. They do **not** prove FBX importer orientation agreement for every file nor validate Blender's bone-heat skinning on your Steam installation. Complex clothing, isolated meshes and soft accessories still require artistic verification. This is a *skeleton-structure* release, not the promised Smart Skin pass.

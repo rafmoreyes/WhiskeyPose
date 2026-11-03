@@ -39,18 +39,23 @@ class WorkerMarkerTests(unittest.TestCase):
             with open(marker_file,encoding='utf-8') as handle:points=json.load(handle)
             seen.append(points['markers']['elbow.R'])
             with open(result_file,'wb') as handle:handle.write(b'fake-FBX')
-            with open(report_file,'w') as handle:json.dump({'template':'confirmed-markers','landmarkCount':13},handle)
+            with open(report_file,'w') as handle:json.dump({'template':'confirmed-markers','landmarkCount':16},handle)
             return type('Result',(),{'returncode':0,'stdout':'','stderr':''})()
-        body={'name':'Demo.fbx','fbxBase64':base64.b64encode(b'FAKE-FBX').decode('ascii'), 'method':'auto'}
+        body={'name':'Demo.fbx','fbxBase64':base64.b64encode(b'FAKE-FBX').decode('ascii'), 'method':'auto','skeletonApproved':True}
         with patch.object(server,'find_blender',return_value='/fake/blender.exe'), patch.object(server.subprocess,'run',side_effect=fake_blender):
             code,data,_=self.post(body)
             self.assertEqual(code,400)
             self.assertIn('marker',data.decode().lower())
             body['markers']=payload()
+            body['skeletonApproved']=False
+            code,data,_=self.post(body)
+            self.assertEqual(code,400)
+            self.assertIn('Approve skeleton',data.decode())
+            body['skeletonApproved']=True
             body['markers']['markers']['elbow.R']=[.19,.61,.65]
             code,data,headers=self.post(body)
             self.assertEqual(code,200)
             self.assertEqual(data,b'fake-FBX')
             self.assertEqual(seen,[[.19,.61,.65]])
-            self.assertEqual(json.loads(headers['X-WhiskeyPose-Report'])['landmarkCount'],13)
+            self.assertEqual(json.loads(headers['X-WhiskeyPose-Report'])['landmarkCount'],16)
 if __name__=='__main__':unittest.main()

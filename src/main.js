@@ -13,7 +13,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.2.1 <span class="version-note">MARKER-DRIVEN RIG</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.2.2 <span class="version-note">ANATOMY PREVIEW</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -119,7 +119,7 @@ const grid = new THREE.GridHelper(20, 20, 0x55585b, 0x41464a);
 grid.material.opacity = 0.38; grid.material.transparent = true;
 scene.add(grid);
 
-// Alpha 0.2.1 marker positions now drive the Blender rigging pipeline.
+// Alpha 0.2.2 marker positions and reviewed skeleton drive the Blender rigging pipeline.
 const markerTool = createMarkerTool({
   scene, camera, renderer, controls, meshes: () => state.meshes,
   onChange: (phase) => { if (phase !== 'drag' && state.activeTab === 'rig') renderPanel(); },
@@ -265,19 +265,25 @@ function renderPanel() {
     const canRig = Boolean(s && !s.bones && state.workerReady && !state.processing);
     const m = markerTool.getStatus();
     const complete = m.count === m.total;
-    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.2.1')}
+    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.2.2')}
       ${s?.bones ? information('The generated FBX is rigged. Inspect bones below, or reopen the original unrigged FBX to refine markers and regenerate.') : !s ? information('Import an FBX character to start placing anatomical markers. No Blender worker is required for this step.') : `
       <div class="marker-summary"><strong>${m.count}<span> / ${m.total}</span></strong><span>${complete ? 'Ready for review' : 'Markers confirmed'}<small>Blue = suggested · Green = confirmed · Gold = selected</small></span></div>
       <div class="marker-list">${MARKER_DEFS.map((def, index) => `<button class="marker-row ${m.selected===def.key?'selected':''}" data-marker="${def.key}"><span class="marker-number">${String(index+1).padStart(2,'0')}</span><span class="marker-description"><strong>${def.label}</strong><small>${def.hint}</small></span><span class="marker-indicator ${m.confirmed[def.key]?'confirmed':'suggested'}"></span></button>`).join('')}</div>
-      <div class="marker-toggles"><label><input type="checkbox" id="marker-symmetry" ${m.symmetry ? 'checked':''}/> Mirror L/R</label><label><input type="checkbox" id="marker-preview" ${m.preview ? 'checked':''}/> Skeleton guide</label></div>
+      <div class="marker-toggles"><label><input type="checkbox" id="marker-symmetry" ${m.symmetry ? 'checked':''}/> Mirror L/R</label><label><input type="checkbox" id="marker-preview" ${m.preview ? 'checked':''}/> Skeleton preview</label></div>
       <div class="marker-actions"><button class="half-button" id="marker-suggest">↻ Reset suggestions</button><button class="half-button" id="marker-approve">✓ Confirm all</button></div>
       <div class="marker-actions"><button class="half-button" id="marker-load">↑ Load markers</button><button class="half-button gold-outline" id="marker-save">⇩ Save markers JSON</button></div>
-      ${information('Place markers at anatomical joints, inspect the Front and Side views, then Confirm all. The resulting rig uses these points (shoulders and ankles are inferred). Reset suggestions replaces all points and clears confirmation.')}
+      <div class="skeleton-review ${m.approved ? 'approved' : ''}">
+        <strong>Skeleton review · 19 bones</strong>
+        <small>${!m.preview ? 'Enable Skeleton preview to inspect the calculated bones.' : m.previewError ? escapeHtml(m.previewError) : m.approved ? '✓ Skeleton approved. Ready for Auto-Skin.' : `${m.previewBones} actual bone segments shown. Inspect Front and Side.`}</small>
+        <button id="approve-skeleton" class="full-button ${m.approved ? '' : 'gold'}" ${complete && m.preview && !m.previewError && !m.approved ? '' : 'disabled'}>${m.approved ? '✓ Skeleton approved' : '✓ Approve skeleton'}</button>
+      </div>
+      ${information('Set all 16 anatomical markers, enable Skeleton preview, inspect the calculated bones in Front and Side, and approve before skinning. Dragging any marker after approval requires a new review.')}
       `}
-      <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.2.1')}
-      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Skin from 13 markers'}</button>` : ''}
+      <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.2.2')}
+      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Skin from 16 markers'}</button>` : ''}
       ${s && !s.bones && !state.workerReady ? information('Start the Blender worker (start-worker.cmd) for rig generation. Marker editing remains local and works without it.') : ''}
-      ${s && !s.bones && !complete ? information(`Confirm all ${m.total} markers to enable generation.`) : ''}
+      ${s && !s.bones && !complete ? information(`Confirm all ${m.total} markers, then review the skeleton.`) : ''}
+      ${s && !s.bones && complete && !m.approved ? information('Preview and approve the 19-bone skeleton before generating skin weights.') : ''}
       ${s?.bones ? `<div class="headline-stat"><strong>${s.bones}</strong><span>Detected bones</span></div><div class="bone-scroll">${state.bones.slice(0,120).map((b,i)=>`<button class="bone-item" data-select-bone="${i}">${escapeHtml(b.name || `Bone ${i + 1}`)}</button>`).join('')}</div>` : ''}
       ${state.riggedFile ? `<button class="full-button gold" id="download-rig">⇩ &nbsp; Download rigged FBX</button><button class="full-button" id="edit-source-markers">↶ &nbsp; Edit source markers</button>` : ''}
       ${information('The generated rig is a 19-bone landmark-driven prototype, not anatomy-aware AI. Validate shoulders, knees, footwear and deformation before production use.')}
@@ -287,6 +293,7 @@ function renderPanel() {
     $('#marker-preview')?.addEventListener('change',event=>markerTool.setPreview(event.target.checked));
     $('#marker-suggest')?.addEventListener('click',()=>{markerTool.suggest();notify('Suggestions restored; all confirmations cleared.','success');});
     $('#marker-approve')?.addEventListener('click',()=>markerTool.confirmAll());
+    $('#approve-skeleton')?.addEventListener('click',()=>{try{markerTool.approveSkeleton();notify('Skeleton approved. Ready to generate skin.','success');}catch(error){notify(error.message,'error');}});
     $('#marker-load')?.addEventListener('click',()=>$('#marker-input').click());
     $('#marker-save')?.addEventListener('click',saveMarkers);
     panel.querySelectorAll('[data-select-bone]').forEach((el) => el.addEventListener('click', () => {state.selectedBone = state.bones[Number(el.dataset.selectBone)]; setTab('pose');}));
@@ -428,14 +435,14 @@ function updateExportUI() {
   button.title = !state.file ? 'Import an FBX first' : !state.workerReady ? 'Start the Blender worker (start-worker.cmd)' : 'Experimental Blender FBX round-trip';
 }
 async function generateRig() {
-  if (!state.file || state.stats?.bones || !state.workerReady || state.processing) return;
+  if (!state.file || state.stats?.bones || !state.workerReady || state.processing || !markerTool.getStatus().approved) return;
   const inputFile = state.file;
   state.processing = true;
   renderPanel();
   notify('Blender is generating an experimental humanoid skeleton and skin weights…');
   try {
     const markerDraft = markerTool.asDraft(inputFile.name);
-    const payload = {name: inputFile.name, fbxBase64: await fileAsBase64(inputFile), method: 'auto', markers: markerTool.asRigPayload()};
+    const payload = {name: inputFile.name, fbxBase64: await fileAsBase64(inputFile), method: 'auto', skeletonApproved: true, markers: markerTool.asApprovedRigPayload()};
     const response = await fetch('/api/auto-rig', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     if (!response.ok) {
       const error = await response.json().catch(() => ({error: response.statusText}));
@@ -444,7 +451,7 @@ async function generateRig() {
     const report = JSON.parse(response.headers.get('X-WhiskeyPose-Report') || '{}');
     const blob = await response.blob();
     const rigged = new File([blob], inputFile.name.replace(/\.fbx$/i, '') + '_WhiskeyPose_Rigged.fbx', {type:'application/octet-stream'});
-    if (report.template !== 'confirmed-markers' || report.landmarkCount !== 13) throw new Error('Worker did not confirm marker-driven generation. Check the worker version.');
+    if (report.template !== 'confirmed-markers' || report.landmarkCount !== 16) throw new Error('Worker did not confirm marker-driven generation. Check the worker version.');
     state.savedMarkerDraft = markerDraft;
     const loaded = await importFBX(rigged, {generated:true, report, markerDraft});
     if (!loaded) {

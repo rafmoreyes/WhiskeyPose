@@ -138,7 +138,7 @@ def main():
         apply_unit_scale=True,
         mesh_smooth_type='OFF',
     )
-    report = {'version': '0.2.1', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':13, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Rig driven by confirmed landmarks; inferred shoulders/ankles/head remain approximate. Inspect the FBX orientation and skin deformations.']}
+    report = {'version': '0.2.2', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Rig driven by confirmed landmarks; inferred shoulders/ankles/head remain approximate. Inspect the FBX orientation and skin deformations.']}
     with open(args.report, 'w', encoding='utf-8') as handle:
         json.dump(report, handle)
     print('WhiskeyPose Alpha 0.1 output:', json.dumps(report))

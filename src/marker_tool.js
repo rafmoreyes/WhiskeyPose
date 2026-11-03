@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {MARKER_DEFS, MARKER_KEYS, markerPair, reflectX, proposeMarkers, exportMarkerDraft, parseMarkerDraft, rigMarkerPayload} from './marker_math.js';
+import {buildSkeletonTemplate} from './skeleton_solver.js';
 
 /** Non-destructive marker placement. Confirmed positions are sent to the worker for rig generation. */
 export function createMarkerTool({scene, camera, renderer, controls, meshes, onChange}) {
@@ -12,9 +13,12 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
   const hit = new THREE.Vector3();
   const normal = new THREE.Vector3();
   let model = null, bounds = null, active = false, dragging = null;
-  let selected = 'chin', symmetry = true, preview = true, radius = 0.02;
+  let selected = 'chin', symmetry = true, preview = false, radius = 0.02;
+  let approvedSnapshot = null, previewError = null, previewBones = [];
   let positions = {}, confirmed = {}, markerMeshes = new Map();
-  let previewLines = null;
+  let skeletonGroup = null;
+  const boneGeometry = new THREE.CylinderGeometry(1,1,1,8);
+  const boneMaterial = new THREE.MeshBasicMaterial({color:0x5bdacb,transparent:true,opacity:.78,depthTest:false,depthWrite:false});
 
   function offsetPointer(event) {
     const rect = renderer.domElement.getBoundingClientRect();
@@ -35,36 +39,35 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     }
     updatePreview();
   }
+  function clearSkeleton() {
+    if (skeletonGroup) { layer.remove(skeletonGroup); skeletonGroup.clear(); skeletonGroup = null; }
+    previewBones = []; previewError = null;
+  }
   function updatePreview() {
-    if (previewLines) { layer.remove(previewLines); previewLines.geometry.dispose(); previewLines.material.dispose(); previewLines = null; }
+    clearSkeleton();
     if (!preview || !model) return;
-    const p = (key) => positionFor(key);
-    const middle = (a,b,t) => a.clone().lerp(b,t);
-    const chest = p('chest');
-    const shoulders = {};
-    const width = bounds.max.x - bounds.min.x;
-    for (const side of ['L','R']) {
-      const elbow=p('elbow.'+side), wrist=p('wrist.'+side);
-      const sign=side==='L'?1:-1;
-      shoulders[side] = new THREE.Vector3(chest.x+sign*width*.115, chest.y + (p('chin').y-p('groin').y)*0.02, middle(elbow,wrist,0.0).z);
+    try {
+      // Calculate bone heads/tails from the exact normalized markers used by the Blender worker.
+      const data = rigMarkerPayload(positions, Object.fromEntries(MARKER_KEYS.map(key=>[key,true])), {min:bounds.min.toArray(),max:bounds.max.toArray()});
+      previewBones = buildSkeletonTemplate({min:bounds.min.toArray(),max:bounds.max.toArray()},data);
+      skeletonGroup = new THREE.Group();
+      skeletonGroup.name = 'WhiskeyPose_SkeletonPreview';
+      const up = new THREE.Vector3(0,1,0);
+      for (const bone of previewBones) {
+        const head = new THREE.Vector3(...bone.head), tail = new THREE.Vector3(...bone.tail);
+        const delta = tail.clone().sub(head);
+        const rod = new THREE.Mesh(boneGeometry,boneMaterial);
+        rod.scale.set(radius*.30,delta.length(),radius*.30);
+        rod.position.copy(head).addScaledVector(delta,.5);
+        rod.quaternion.setFromUnitVectors(up,delta.normalize());
+        rod.renderOrder = 190;
+        rod.userData.boneName = bone.name;
+        skeletonGroup.add(rod);
+      }
+      layer.add(skeletonGroup);
+    } catch (error) {
+      previewError = error.message;
     }
-    const points=[];
-    const segment=(a,b)=>{if(a&&b)points.push(a,b);};
-    segment(p('groin'),chest); segment(chest,p('chin'));
-    for(const side of ['L','R']) {
-      const elbow=p('elbow.'+side), wrist=p('wrist.'+side), knee=p('knee.'+side);
-      segment(chest,shoulders[side]); segment(shoulders[side],elbow); segment(elbow,wrist);
-      const hip=new THREE.Vector3(p('groin').x+(side==='L'?1:-1)*width*.08,p('groin').y,p('groin').z);
-      segment(p('groin'),hip); segment(hip,knee);
-      const heel=p('heel.'+side), toe=p('toe.'+side);
-      const ankle=heel.clone().add(knee.clone().sub(heel).normalize().multiplyScalar(bounds.getSize(new THREE.Vector3()).y*.038)).add(toe.clone().sub(heel).multiplyScalar(.10));
-      segment(knee,ankle); segment(ankle,toe);
-    }
-    const geometry=new THREE.BufferGeometry().setFromPoints(points);
-    const material=new THREE.LineBasicMaterial({color:0x71d1c2,transparent:true,opacity:.82,depthTest:false,depthWrite:false});
-    previewLines=new THREE.LineSegments(geometry,material);
-    previewLines.renderOrder=199;
-    layer.add(previewLines);
   }
   function labelSprite(label) {
     const canvas=document.createElement('canvas'); canvas.width=240; canvas.height=54;
@@ -85,7 +88,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
       const label=mesh.children[0]; label.material.map.dispose();label.material.dispose();
     }
     markerMeshes.clear();
-    if (previewLines) { previewLines.geometry.dispose();previewLines.material.dispose(); previewLines=null; }
+    clearSkeleton();
   }
   function makeVisuals() {
     clearVisuals(); if(!model)return;
@@ -100,7 +103,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     updateVisuals();
   }
   function place(key, point, isConfirmed=true) {
-    positions[key]=point.toArray();confirmed[key]=isConfirmed;
+    positions[key]=point.toArray();confirmed[key]=isConfirmed;approvedSnapshot=null;
     const pair=markerPair(key);
     if(symmetry&&pair) { positions[pair]=reflectX(positions[key],(bounds.min.x+bounds.max.x)/2); confirmed[pair]=isConfirmed; }
     updateVisuals();
@@ -108,7 +111,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
   function suggest() {
     if(!model)return;
     const proposal=proposeMarkers({min:bounds.min.toArray(),max:bounds.max.toArray()});
-    positions=proposal;
+    positions=proposal;approvedSnapshot=null;
     confirmed=Object.fromEntries(MARKER_KEYS.map(k=>[k,false]));
     // Prefill a front-facing location when the silhouette intersects the guess.
     const ray=new THREE.Raycaster(), front=new THREE.Vector3(0,0,-1), back=new THREE.Vector3(0,0,1);
@@ -123,7 +126,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     selected='chin';makeVisuals();notify('reset');
   }
   function setModel(next) {
-    clearVisuals(); model=next; dragging=null;
+    clearVisuals(); model=next; dragging=null;approvedSnapshot=null;preview=false;
     if(!model){bounds=null; positions={};confirmed={};layer.visible=false;return;}
     model.updateWorldMatrix(true,true);
     bounds=new THREE.Box3().setFromObject(model);
@@ -133,11 +136,23 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
   function setActive(value) {active=Boolean(value);layer.visible=active && Boolean(model);if(!active){dragging=null;controls.enabled=true;}}
   function choose(key){if(MARKER_KEYS.includes(key)){selected=key;updateVisuals();notify('select');}}
   function setSymmetry(value){symmetry=Boolean(value);notify('select');}
-  function setPreview(value){preview=Boolean(value);updateVisuals();notify('select');}
+  function setPreview(value){preview=Boolean(value);updateVisuals();notify('update');}
   function confirmAll(){for(const key of MARKER_KEYS)confirmed[key]=true;updateVisuals();notify('update');}
-  function getStatus() {return {selected,symmetry,preview,confirmed:{...confirmed},count:Object.values(confirmed).filter(Boolean).length,total:MARKER_KEYS.length,model:!!model};}
+  function approveSkeleton(){
+    if(!preview)throw new Error('Open Skeleton Preview before approving.');
+    if(previewError||previewBones.length!==19)throw new Error(previewError||'Cannot preview all bones.');
+    const payload=asRigPayload();
+    approvedSnapshot=JSON.stringify(payload);
+    notify('update');
+  }
+  function asApprovedRigPayload(){
+    const payload=asRigPayload();
+    if(!approvedSnapshot||JSON.stringify(payload)!==approvedSnapshot)throw new Error('Preview and approve your skeleton before generating skin.');
+    return payload;
+  }
+  function getStatus() {return {selected,symmetry,preview,previewError,previewBones:previewBones.length,approved:approvedSnapshot!==null,confirmed:{...confirmed},count:Object.values(confirmed).filter(Boolean).length,total:MARKER_KEYS.length,model:!!model};}
   function asDraft(name){return exportMarkerDraft(positions,confirmed,name,symmetry);}
-  function loadDraft(data){const incoming=parseMarkerDraft(data);if(!model)throw new Error('Import a model first');const defaults=proposeMarkers({min:bounds.min.toArray(),max:bounds.max.toArray()});positions={...defaults,...incoming.positions};confirmed=Object.fromEntries(MARKER_KEYS.map(key=>[key,incoming.confirmation[key]===true]));symmetry=incoming.symmetry;makeVisuals();notify('update');return incoming.model;}
+  function loadDraft(data){const incoming=parseMarkerDraft(data);if(!model)throw new Error('Import a model first');const defaults=proposeMarkers({min:bounds.min.toArray(),max:bounds.max.toArray()});positions={...defaults,...incoming.positions};approvedSnapshot=null;preview=false;confirmed=Object.fromEntries(MARKER_KEYS.map(key=>[key,incoming.confirmation[key]===true]));symmetry=incoming.symmetry;makeVisuals();notify('update');return incoming.model;}
   function asRigPayload(){if(!model||!bounds)throw new Error('Import a model first');return rigMarkerPayload(positions,confirmed,{min:bounds.min.toArray(),max:bounds.max.toArray()});}
   function pickMarker() {
     const hits=raycaster.intersectObjects([...markerMeshes.values()],false);
@@ -183,5 +198,5 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     camera.position.copy(center).addScaledVector(direction,distance);
     controls.target.copy(center); camera.lookAt(center);camera.updateProjectionMatrix();controls.update();
   }
-  return {setModel,setActive,choose,setSymmetry,setPreview,suggest,confirmAll,getStatus,asDraft,asRigPayload,loadDraft,frameView};
+  return {setModel,setActive,choose,setSymmetry,setPreview,suggest,confirmAll,approveSkeleton,getStatus,asDraft,asApprovedRigPayload,loadDraft,frameView};
 }
