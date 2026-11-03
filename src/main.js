@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './style.css';
+import { createMarkerTool } from './marker_tool.js';
+import { MARKER_DEFS } from './marker_math.js';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -11,11 +13,11 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.1.1 <span class="version-note">ENGINE SETUP</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.2.2 <span class="version-note">ANATOMY PREVIEW</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
-        <button class="step" data-tab="rig"><span class="step-number">02</span><span><strong>Rig</strong><small>Generate humanoid rig</small></span><span class="step-arrow">›</span></button>
+        <button class="step" data-tab="rig"><span class="step-number">02</span><span><strong>Rig</strong><small>Place joint markers</small></span><span class="step-arrow">›</span></button>
         <button class="step" data-tab="skin"><span class="step-number">03</span><span><strong>Skin</strong><small>Auto weights inspector</small></span><span class="step-arrow">›</span></button>
         <button class="step" data-tab="pose"><span class="step-number">04</span><span><strong>Pose</strong><small>Bone rotations</small></span><span class="step-arrow">›</span></button>
       </nav>
@@ -31,6 +33,8 @@ app.innerHTML = `
       </header>
       <div class="viewport-wrap" id="dropzone">
         <div class="viewport" id="viewport"></div>
+        <div class="marker-view-tools hidden" id="marker-views"><span>MARKER VIEW</span><button data-marker-view="front">Front</button><button data-marker-view="side">Side</button><button data-marker-view="perspective">3/4</button></div>
+        <div class="marker-tip hidden" id="marker-tip">Select a marker, then drag it or click the mesh. Use Side to adjust depth.</div>
         <div class="viewport-toolbar"><div class="tool-group"><span class="view-chip">PERSPECTIVE</span><button id="frame-view" title="Frame model (F)">⌗ Frame</button><button id="toggle-grid" class="toggled">▦ Grid</button><button id="toggle-wire">◇ Wire</button><button id="toggle-skeleton">♧ Bones</button></div><div class="tool-group"><span id="camera-info" class="camera-label">Orbit / Pan / Zoom</span></div></div>
         <div class="corner-guide">WHISKEYPOSE <span>·</span> 3D VIEWPORT</div>
         <div id="drop-overlay" class="drop-overlay hidden"><div class="drop-target">Drop FBX to import</div></div>
@@ -49,6 +53,7 @@ app.innerHTML = `
     <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="engine-settings-open" class="worker-config-button" title="Configure External Engines" aria-label="Configure External Engines">⚙</button><button id="retry-worker" title="Check the local export worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
   </div>
   <input id="file-input" type="file" accept=".fbx" hidden />
+  <input id="marker-input" type="file" accept=".json,application/json" hidden />
   <div id="engines-overlay" class="engines-overlay hidden">
     <section class="engines-dialog" role="dialog" aria-modal="true" aria-labelledby="engines-title">
       <header class="engines-head"><div><small>LOCAL PROCESSING</small><h2 id="engines-title">External Engines</h2></div><button id="engines-close" aria-label="Close settings">✕</button></header>
@@ -114,6 +119,12 @@ const grid = new THREE.GridHelper(20, 20, 0x55585b, 0x41464a);
 grid.material.opacity = 0.38; grid.material.transparent = true;
 scene.add(grid);
 
+// Alpha 0.2.2 marker positions and reviewed skeleton drive the Blender rigging pipeline.
+const markerTool = createMarkerTool({
+  scene, camera, renderer, controls, meshes: () => state.meshes,
+  onChange: (phase) => { if (phase !== 'drag' && state.activeTab === 'rig') renderPanel(); },
+});
+
 function resizeViewport() {
   const w = Math.max(1, viewport.clientWidth), h = Math.max(1, viewport.clientHeight);
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
@@ -143,6 +154,7 @@ function frameModel() {
 }
 
 function destroyModel() {
+  markerTool.setModel(null);
   if (state.skeletonHelper) { scene.remove(state.skeletonHelper); state.skeletonHelper.geometry?.dispose(); state.skeletonHelper = null; }
   if (state.model) {
     scene.remove(state.model);
@@ -192,6 +204,9 @@ async function importFBX(file, options = {}) {
     state.skeletonHelper = new THREE.SkeletonHelper(fbx);
     state.skeletonHelper.visible = state.bonesVisible && bones.length > 0;
     scene.add(fbx); scene.add(state.skeletonHelper);
+    markerTool.setModel(fbx);
+    if (options.markerDraft) markerTool.loadDraft(options.markerDraft);
+    markerTool.setActive(state.activeTab === 'rig' && stats.bones === 0);
     for (const mesh of meshes) { mesh.castShadow = true; mesh.receiveShadow = true; }
     updateWire(); frameModel();
     $('#empty-state').classList.add('hidden');
@@ -221,6 +236,10 @@ function updateWire() {
 }
 function setTab(tab) {
   state.activeTab = tab;
+  const editingMarkers = tab === 'rig' && state.model && state.stats?.bones === 0;
+  markerTool.setActive(Boolean(editingMarkers));
+  $('#marker-views').classList.toggle('hidden', !editingMarkers);
+  $('#marker-tip').classList.toggle('hidden', !editingMarkers);
   $('#active-mode').textContent = tab.toUpperCase();
   document.querySelectorAll('[data-tab]').forEach((el) => el.classList.toggle('active', el.dataset.tab === tab));
   renderPanel();
@@ -244,16 +263,43 @@ function renderPanel() {
     $('#panel-import').addEventListener('click', selectFile);
   } else if (state.activeTab === 'rig') {
     const canRig = Boolean(s && !s.bones && state.workerReady && !state.processing);
-    panel.innerHTML = `${sectionTitle('Humanoid auto-rig', 'ALPHA 0.1 PILOT')}
-      <div class="headline-stat"><strong>${s ? s.bones : '—'}</strong><span>${s?.bones ? 'Detected bones' : 'Skeleton not yet generated'}</span></div>
-      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : '✳  Auto-Rig + Auto-Skin'}</button>` : ''}
-      ${s && !s.bones && !state.workerReady ? information('Start start-worker.cmd in a second CMD window. Blender must be installed. Then click ↻ next to Blender worker below.') : ''}
-      ${s?.bones ? `<div class="bone-scroll">${state.bones.slice(0,120).map((b,i)=>`<button class="bone-item" data-select-bone="${i}">${escapeHtml(b.name || `Bone ${i + 1}`)}</button>`).join('')}</div>` : information(s ? 'Experimental generator: upright, roughly symmetric humanoids in A/T pose. Not intended for creatures, nonstandard limbs or already-rigged FBX.' : 'Import a character FBX to begin.')}
-      ${state.riggedFile ? `<button class="full-button gold" id="download-rig">⇩ &nbsp; Download rigged FBX</button>` : ''}
-      ${state.rigReport ? information(`Generated ${state.rigReport.bones} bones. Weight methods: ${state.rigReport.weights.map(x => x.weights).join(', ')}. Check all joint deformations before production use.`) : information('This first auto-rig uses a procedural skeleton template plus Blender bone-heat weights (with proximity fallback). AI inference will be evaluated separately.')}`;
+    const m = markerTool.getStatus();
+    const complete = m.count === m.total;
+    panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.2.2')}
+      ${s?.bones ? information('The generated FBX is rigged. Inspect bones below, or reopen the original unrigged FBX to refine markers and regenerate.') : !s ? information('Import an FBX character to start placing anatomical markers. No Blender worker is required for this step.') : `
+      <div class="marker-summary"><strong>${m.count}<span> / ${m.total}</span></strong><span>${complete ? 'Ready for review' : 'Markers confirmed'}<small>Blue = suggested · Green = confirmed · Gold = selected</small></span></div>
+      <div class="marker-list">${MARKER_DEFS.map((def, index) => `<button class="marker-row ${m.selected===def.key?'selected':''}" data-marker="${def.key}"><span class="marker-number">${String(index+1).padStart(2,'0')}</span><span class="marker-description"><strong>${def.label}</strong><small>${def.hint}</small></span><span class="marker-indicator ${m.confirmed[def.key]?'confirmed':'suggested'}"></span></button>`).join('')}</div>
+      <div class="marker-toggles"><label><input type="checkbox" id="marker-symmetry" ${m.symmetry ? 'checked':''}/> Mirror L/R</label><label><input type="checkbox" id="marker-preview" ${m.preview ? 'checked':''}/> Skeleton preview</label></div>
+      <div class="marker-actions"><button class="half-button" id="marker-suggest">↻ Reset suggestions</button><button class="half-button" id="marker-approve">✓ Confirm all</button></div>
+      <div class="marker-actions"><button class="half-button" id="marker-load">↑ Load markers</button><button class="half-button gold-outline" id="marker-save">⇩ Save markers JSON</button></div>
+      <div class="skeleton-review ${m.approved ? 'approved' : ''}">
+        <strong>Skeleton review · 19 bones</strong>
+        <small>${!m.preview ? 'Enable Skeleton preview to inspect the calculated bones.' : m.previewError ? escapeHtml(m.previewError) : m.approved ? '✓ Skeleton approved. Ready for Auto-Skin.' : `${m.previewBones} actual bone segments shown. Inspect Front and Side.`}</small>
+        <button id="approve-skeleton" class="full-button ${m.approved ? '' : 'gold'}" ${complete && m.preview && !m.previewError && !m.approved ? '' : 'disabled'}>${m.approved ? '✓ Skeleton approved' : '✓ Approve skeleton'}</button>
+      </div>
+      ${information('Set all 16 anatomical markers, enable Skeleton preview, inspect the calculated bones in Front and Side, and approve before skinning. Dragging any marker after approval requires a new review.')}
+      `}
+      <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.2.2')}
+      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Skin from 16 markers'}</button>` : ''}
+      ${s && !s.bones && !state.workerReady ? information('Start the Blender worker (start-worker.cmd) for rig generation. Marker editing remains local and works without it.') : ''}
+      ${s && !s.bones && !complete ? information(`Confirm all ${m.total} markers, then review the skeleton.`) : ''}
+      ${s && !s.bones && complete && !m.approved ? information('Preview and approve the 19-bone skeleton before generating skin weights.') : ''}
+      ${s?.bones ? `<div class="headline-stat"><strong>${s.bones}</strong><span>Detected bones</span></div><div class="bone-scroll">${state.bones.slice(0,120).map((b,i)=>`<button class="bone-item" data-select-bone="${i}">${escapeHtml(b.name || `Bone ${i + 1}`)}</button>`).join('')}</div>` : ''}
+      ${state.riggedFile ? `<button class="full-button gold" id="download-rig">⇩ &nbsp; Download rigged FBX</button><button class="full-button" id="edit-source-markers">↶ &nbsp; Edit source markers</button>` : ''}
+      ${information('The generated rig is a 19-bone landmark-driven prototype, not anatomy-aware AI. Validate shoulders, knees, footwear and deformation before production use.')}
+      </div>`;
+    panel.querySelectorAll('[data-marker]').forEach(el=>el.addEventListener('click',()=>markerTool.choose(el.dataset.marker)));
+    $('#marker-symmetry')?.addEventListener('change',event=>markerTool.setSymmetry(event.target.checked));
+    $('#marker-preview')?.addEventListener('change',event=>markerTool.setPreview(event.target.checked));
+    $('#marker-suggest')?.addEventListener('click',()=>{markerTool.suggest();notify('Suggestions restored; all confirmations cleared.','success');});
+    $('#marker-approve')?.addEventListener('click',()=>markerTool.confirmAll());
+    $('#approve-skeleton')?.addEventListener('click',()=>{try{markerTool.approveSkeleton();notify('Skeleton approved. Ready to generate skin.','success');}catch(error){notify(error.message,'error');}});
+    $('#marker-load')?.addEventListener('click',()=>$('#marker-input').click());
+    $('#marker-save')?.addEventListener('click',saveMarkers);
     panel.querySelectorAll('[data-select-bone]').forEach((el) => el.addEventListener('click', () => {state.selectedBone = state.bones[Number(el.dataset.selectBone)]; setTab('pose');}));
     $('#auto-rig')?.addEventListener('click', generateRig);
     $('#download-rig')?.addEventListener('click', () => saveBlob(state.riggedFile, state.riggedFile.name));
+    $('#edit-source-markers')?.addEventListener('click', () => { if (state.sourceFile) importFBX(state.sourceFile, {markerDraft:state.savedMarkerDraft}); });
   } else if (state.activeTab === 'skin') {
     panel.innerHTML = `${sectionTitle('Skinning diagnostics', 'DEFORMATION')}
       <div class="headline-stat"><strong>${s ? s.skinned : '—'}</strong><span>Skinned meshes</span></div>
@@ -300,6 +346,24 @@ function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+function saveMarkers() {
+  if (!state.file || !state.model) return;
+  try {
+    const draft=markerTool.asDraft(state.file.name);
+    const filename=state.file.name.replace(/\.fbx$/i,'')+'_WhiskeyPose_Markers.json';
+    saveBlob(new Blob([JSON.stringify(draft,null,2)],{type:'application/json'}),filename);
+    notify(`Saved ${filename}. This is a marker draft, not a rig.`, 'success');
+  } catch(error) {notify(`Could not save markers: ${error.message}`,'error');}
+}
+async function loadMarkers(file) {
+  if(!state.model) {notify('Import an FBX before loading markers.','error');return;}
+  try {
+    if(file.size > 1024*1024) throw new Error('Marker JSON is too large');
+    const parsed=JSON.parse(await file.text());
+    const modelName=markerTool.loadDraft(parsed);
+    notify(modelName && modelName!==state.file.name ? `Markers loaded. Warning: file was created for ${modelName}. Check alignment.` : 'Markers loaded. Verify them on your model.', 'success');
+  } catch(error) {notify(`Could not read markers: ${error.message}`,'error');}
 }
 function downloadPose() {
   if (!state.bones.length) return;
@@ -371,13 +435,14 @@ function updateExportUI() {
   button.title = !state.file ? 'Import an FBX first' : !state.workerReady ? 'Start the Blender worker (start-worker.cmd)' : 'Experimental Blender FBX round-trip';
 }
 async function generateRig() {
-  if (!state.file || state.stats?.bones || !state.workerReady || state.processing) return;
+  if (!state.file || state.stats?.bones || !state.workerReady || state.processing || !markerTool.getStatus().approved) return;
   const inputFile = state.file;
   state.processing = true;
   renderPanel();
   notify('Blender is generating an experimental humanoid skeleton and skin weights…');
   try {
-    const payload = {name: inputFile.name, fbxBase64: await fileAsBase64(inputFile), method: 'auto'};
+    const markerDraft = markerTool.asDraft(inputFile.name);
+    const payload = {name: inputFile.name, fbxBase64: await fileAsBase64(inputFile), method: 'auto', skeletonApproved: true, markers: markerTool.asApprovedRigPayload()};
     const response = await fetch('/api/auto-rig', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     if (!response.ok) {
       const error = await response.json().catch(() => ({error: response.statusText}));
@@ -386,7 +451,9 @@ async function generateRig() {
     const report = JSON.parse(response.headers.get('X-WhiskeyPose-Report') || '{}');
     const blob = await response.blob();
     const rigged = new File([blob], inputFile.name.replace(/\.fbx$/i, '') + '_WhiskeyPose_Rigged.fbx', {type:'application/octet-stream'});
-    const loaded = await importFBX(rigged, {generated:true, report});
+    if (report.template !== 'confirmed-markers' || report.landmarkCount !== 16) throw new Error('Worker did not confirm marker-driven generation. Check the worker version.');
+    state.savedMarkerDraft = markerDraft;
+    const loaded = await importFBX(rigged, {generated:true, report, markerDraft});
     if (!loaded) {
       saveBlob(rigged, rigged.name);
       throw new Error('Blender generated an FBX, but the viewport could not parse it. The file was downloaded for inspection.');
@@ -395,7 +462,7 @@ async function generateRig() {
     $('#toggle-skeleton').classList.add('toggled');
     if (state.skeletonHelper) state.skeletonHelper.visible = true;
     setTab('rig');
-    notify(`Rig generated: ${state.stats.bones} bones, ${state.stats.skinned} skinned mesh(es). Review joints before using it.`, 'success');
+    notify(`Marker-driven rig generated: ${state.stats.bones} bones, ${state.stats.skinned} skinned mesh(es). Inspect joints and skin.`, 'success');
   } catch (error) {
     notify(`Auto-Rig failed: ${error.message}`, 'error');
     console.error('Auto-Rig failed:', error);
@@ -430,6 +497,8 @@ async function exportFBX() {
   finally {button.textContent='⇩   Export FBX'; updateExportUI();}
 }
 function selectFile() { $('#file-input').click(); }
+$('#marker-input').addEventListener('change', (event) => {const file=event.target.files?.[0];if(file)loadMarkers(file);event.target.value='';});
+document.querySelectorAll('[data-marker-view]').forEach(el=>el.addEventListener('click',()=>{markerTool.frameView(el.dataset.markerView);document.querySelectorAll('[data-marker-view]').forEach(button=>button.classList.toggle('selected',button===el));}));
 $('#file-input').addEventListener('change', (event) => {const file = event.target.files?.[0]; if (file) importFBX(file); event.target.value = '';});
 $('#open-file-top').addEventListener('click', selectFile);
 $('#open-file-hero').addEventListener('click', selectFile);
@@ -476,4 +545,5 @@ dropzone.addEventListener('drop', (event) => {event.preventDefault(); $('#drop-o
 window.addEventListener('dragover', (event) => event.preventDefault());
 window.addEventListener('drop', (event) => {if (!dropzone.contains(event.target)) event.preventDefault();});
 window.addEventListener('keydown', (event) => {if (event.key.toLowerCase()==='f' && !(event.target instanceof HTMLInputElement)) frameModel();});
+markerTool.setActive(false);
 renderPanel(); checkWorker();

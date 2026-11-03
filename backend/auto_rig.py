@@ -11,7 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bpy
-from rig_math import make_humanoid_template, proximity_weights
+from rig_math import proximity_weights
+from marker_rig import make_marker_template
 
 
 def arguments():
@@ -21,6 +22,7 @@ def arguments():
     parser.add_argument('--output', required=True)
     parser.add_argument('--report', required=True)
     parser.add_argument('--method', choices=('auto', 'proximity'), default='auto')
+    parser.add_argument('--markers', required=True)
     return parser.parse_args(args)
 
 
@@ -113,7 +115,8 @@ def main():
         raise RuntimeError('Input FBX contains no meshes')
     if any(obj.type == 'ARMATURE' for obj in bpy.context.scene.objects):
         raise RuntimeError('This FBX already contains a skeleton; import an unrigged model')
-    definitions, dimensions = make_humanoid_template(get_bounds(meshes))
+    marker_data=json.loads(Path(args.markers).read_text(encoding='utf-8'))
+    definitions, dimensions = make_marker_template(get_bounds(meshes), marker_data)
     rig = create_armature(definitions)
     methods = []
     for mesh in meshes:
@@ -135,7 +138,7 @@ def main():
         apply_unit_scale=True,
         mesh_smooth_type='OFF',
     )
-    report = {'version': '0.1.0', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'upright-humanoid-t-pose', 'warnings': ['Experimental procedural fit; inspect shoulders, hips, knees and cloth deformations before production use.']}
+    report = {'version': '0.2.2', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Rig driven by confirmed landmarks; inferred shoulders/ankles/head remain approximate. Inspect the FBX orientation and skin deformations.']}
     with open(args.report, 'w', encoding='utf-8') as handle:
         json.dump(report, handle)
     print('WhiskeyPose Alpha 0.1 output:', json.dumps(report))

@@ -123,6 +123,7 @@ Marker JSON files are now v3. Older v1/v2 files still load, but new Shoulder/Nec
 
 The JavaScript preview and Python generator have automated coordinate-parity tests using matched synthetic bounds, with axis conversion. They do **not** prove FBX importer orientation agreement for every file nor validate Blender's bone-heat skinning on your Steam installation. Complex clothing, isolated meshes and soft accessories still require artistic verification. This is a *skeleton-structure* release, not the promised Smart Skin pass.
 
+
 ## One-click launcher (Windows 11)
 
 Run **`Iniciar-WhiskeyPose.bat`** from a Git clone of this repository to start everything with one double click.
@@ -132,6 +133,6 @@ Run **`Iniciar-WhiskeyPose.bat`** from a Git clone of this repository to start e
 3. Starts the Vite frontend in its own CMD window unless port `5173` already responds.
 4. Waits for the web app to respond, then launches **Microsoft Edge as a separate instance** using a persistent, dedicated profile stored at `%LOCALAPPDATA%\WhiskeyPose\EdgeProfile` and opens `http://127.0.0.1:5173/`.
 
-**Requirements:** Git, Node.js, Python, Blender, Microsoft Edge and the built-in Windows 11 `curl.exe`. The Worker and Vite windows must stay open while using the app. To make sure an update is reflected, close old Worker/Vite windows before using the launcher. A running service on either port is reused rather than duplicated.
+**Requirements:** Git, Node.js, Python, Blender, Microsoft Edge and Windows 11 `curl.exe`. Close previously running Worker/Vite terminals before launching after an update; already-responding services are reused rather than restarted. No new packages are required.
 
-The existing `start-whiskeypose.cmd` still works standalone; the launcher passes `--no-browser` to avoid opening a duplicate browser tab. No new npm or Python packages are required by the launcher.
+The standalone `start-whiskeypose.cmd` still works; the launcher uses `--no-browser` to avoid opening a duplicate browser tab.
