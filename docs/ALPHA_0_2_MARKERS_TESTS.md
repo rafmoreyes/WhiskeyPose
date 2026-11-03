@@ -1,3 +1,5 @@
+> **Historical test plan for Alpha 0.2.0 (failed artist acceptance).** Superseded by [Alpha 0.2.1 marker-to-FBX tests](ALPHA_0_2_1_MARKER_PIPELINE_TESTS.md). Do not apply this older checklist to current builds.
+
 # WhiskeyPose Alpha 0.2.0 — Joint Marker Testing
 
 ## Setup

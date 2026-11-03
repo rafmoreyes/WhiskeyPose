@@ -74,3 +74,11 @@ Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime moca
 - [ ] Artist validation with both A-Pose and T-Pose FBX assets.
 - [ ] True joint inference and fitting, including 3D joint centers.
 - [ ] Integrate validated markers into Blender rig creation and Auto-Skin.
+
+### Alpha 0.2.1 (corrective build)
+
+- 13 markers including Chest, both Heels and Foot points.
+- Marker-to-Blender pipeline implemented; old fixed T-pose rig is no longer silently used by the interactive UI.
+- Worker validates and consumes normalized, confirmed landmarks, then creates bones before automatic weights.
+- Reset suggestions clears confirmation; edit-source workflow allows regenerating from new marker positions.
+- Manual real-FBX tests and deformation QA are still required.

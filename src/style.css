@@ -18,7 +18,7 @@
 .engine-help{font-size:11px;line-height:1.7;color:#a6b0b2;margin:0 0 20px}.engine-field-label{display:block;color:#e0d7c7;font-size:10px;font-weight:700;margin:16px 0 8px}.engine-control{width:100%;min-width:0;outline:none;border:1px solid #50585c;border-radius:7px;background:#252b2e;color:#f0ede6;padding:11px 12px;font-size:11px}.engine-control:focus{border-color:#d5a164}.engine-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.engine-actions button{flex:1;min-width:110px;border:1px solid #464e52;border-radius:7px;background:#31393d;color:#d8e0df;font-size:11px;font-weight:700;padding:11px 9px}.engine-actions button:hover{background:#444c4d}.engine-primary-actions{margin-top:14px}.engine-primary-actions #engine-use{background:#dfa45d;border-color:#eab674;color:#2b1b0d}.engine-primary-actions #engine-use:hover{background:#efbc79}.engine-message{border:1px solid #42494b;border-radius:7px;background:#262c2e;color:#b7c7ca;font-size:11px;line-height:1.55;padding:11px;margin:16px 0}.engine-message[data-kind="error"]{background:#412e2d;border-color:#945750;color:#e7b6ad}.engine-message[data-kind="success"]{background:#27392f;border-color:#588268;color:#b8ddc4}.engine-footnote{font-size:10px;color:#848e92;line-height:1.6;margin:0}.worker-config-button{font-size:14px!important}
 @media(max-width:620px){.engines-body{padding:18px}.engines-head{padding:18px}.engines-actions button{min-width:90px}}
 
-/* Alpha 0.2.0 — non-destructive joint marker placement */
+/* Alpha 0.2.1 — marker-driven joint placement */
 .marker-view-tools{position:absolute;z-index:6;top:65px;left:18px;display:flex;gap:4px;align-items:center;background:#1c2123ed;border:1px solid #42494a;border-radius:8px;padding:5px;box-shadow:0 8px 24px #0004}
 .marker-view-tools span{font-size:9px;letter-spacing:.7px;color:#aab4b6;font-weight:700;padding:0 9px}
 .marker-view-tools button{border:0;color:#aeb9bb;padding:8px 10px;border-radius:5px;background:transparent;font-size:10px}
@@ -47,3 +47,7 @@
 .marker-actions .half-button{font-size:10px;padding:11px 7px}
 .half-button.gold-outline{border-color:#9d774c;color:#edc18e;background:#302c27}
 .legacy-rig-panel{margin-top:27px;padding-top:24px;border-top:1px solid #343d3f}
+
+/* Alpha 0.2.1: keep 13-point Inspector usable on shorter displays */
+.marker-list{max-height:min(52vh,550px);overflow-y:auto;padding-right:3px;scrollbar-width:thin;scrollbar-color:#485758 transparent}
+.marker-row{min-height:50px}

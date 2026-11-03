@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import {MARKER_DEFS, MARKER_KEYS, markerPair, reflectX, proposeMarkers, exportMarkerDraft, parseMarkerDraft} from './marker_math.js';
+import {MARKER_DEFS, MARKER_KEYS, markerPair, reflectX, proposeMarkers, exportMarkerDraft, parseMarkerDraft, rigMarkerPayload} from './marker_math.js';
 
-/** An independent, non-destructive joint-marker layer. Does NOT modify bones or skin weights. */
+/** Non-destructive marker placement. Confirmed positions are sent to the worker for rig generation. */
 export function createMarkerTool({scene, camera, renderer, controls, meshes, onChange}) {
   const layer = new THREE.Group();
   layer.name = 'WhiskeyPose_AssistedMarkers';
@@ -40,7 +40,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     if (!preview || !model) return;
     const p = (key) => positionFor(key);
     const middle = (a,b,t) => a.clone().lerp(b,t);
-    const chest = middle(p('groin'),p('chin'),0.73);
+    const chest = p('chest');
     const shoulders = {};
     const width = bounds.max.x - bounds.min.x;
     for (const side of ['L','R']) {
@@ -56,9 +56,9 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
       segment(chest,shoulders[side]); segment(shoulders[side],elbow); segment(elbow,wrist);
       const hip=new THREE.Vector3(p('groin').x+(side==='L'?1:-1)*width*.08,p('groin').y,p('groin').z);
       segment(p('groin'),hip); segment(hip,knee);
-      const ankle=new THREE.Vector3(knee.x,knee.y-(p('groin').y-bounds.min.y)*0.55,knee.z);
-      ankle.y = Math.max(bounds.min.y+radius*2,ankle.y);
-      segment(knee,ankle);
+      const heel=p('heel.'+side), toe=p('toe.'+side);
+      const ankle=heel.clone().add(knee.clone().sub(heel).normalize().multiplyScalar(bounds.getSize(new THREE.Vector3()).y*.038)).add(toe.clone().sub(heel).multiplyScalar(.10));
+      segment(knee,ankle); segment(ankle,toe);
     }
     const geometry=new THREE.BufferGeometry().setFromPoints(points);
     const material=new THREE.LineBasicMaterial({color:0x71d1c2,transparent:true,opacity:.82,depthTest:false,depthWrite:false});
@@ -74,7 +74,7 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     const texture=new THREE.CanvasTexture(canvas);
     const material=new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false});
     const sprite=new THREE.Sprite(material);
-    sprite.scale.set(radius*14,radius*3.15,1);
+    sprite.scale.set(radius*10,radius*2.4,1);
     sprite.renderOrder=201;
     return sprite;
   }
@@ -111,11 +111,12 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     positions=proposal;
     confirmed=Object.fromEntries(MARKER_KEYS.map(k=>[k,false]));
     // Prefill a front-facing location when the silhouette intersects the guess.
-    const ray=new THREE.Raycaster(), front= new THREE.Vector3(0,0,-1);
+    const ray=new THREE.Raycaster(), front=new THREE.Vector3(0,0,-1), back=new THREE.Vector3(0,0,1);
     const size=bounds.getSize(new THREE.Vector3());
     for(const key of MARKER_KEYS) {
       const v=positions[key];
-      ray.set(new THREE.Vector3(v[0],v[1],bounds.max.z+Math.max(size.z,size.y)*2),front);
+      const heel=key.startsWith('heel.');
+      ray.set(new THREE.Vector3(v[0],v[1],heel ? bounds.min.z-Math.max(size.z,size.y)*2 : bounds.max.z+Math.max(size.z,size.y)*2),heel?back:front);
       const contact=ray.intersectObjects(meshes(),false)[0];
       if(contact)positions[key]=contact.point.toArray();
     }
@@ -136,7 +137,8 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
   function confirmAll(){for(const key of MARKER_KEYS)confirmed[key]=true;updateVisuals();notify('update');}
   function getStatus() {return {selected,symmetry,preview,confirmed:{...confirmed},count:Object.values(confirmed).filter(Boolean).length,total:MARKER_KEYS.length,model:!!model};}
   function asDraft(name){return exportMarkerDraft(positions,confirmed,name,symmetry);}
-  function loadDraft(data){const incoming=parseMarkerDraft(data);if(!model)throw new Error('Import a model first');positions=incoming.positions;confirmed=incoming.confirmation;symmetry=incoming.symmetry;makeVisuals();notify('update');return incoming.model;}
+  function loadDraft(data){const incoming=parseMarkerDraft(data);if(!model)throw new Error('Import a model first');const defaults=proposeMarkers({min:bounds.min.toArray(),max:bounds.max.toArray()});positions={...defaults,...incoming.positions};confirmed=Object.fromEntries(MARKER_KEYS.map(key=>[key,incoming.confirmation[key]===true]));symmetry=incoming.symmetry;makeVisuals();notify('update');return incoming.model;}
+  function asRigPayload(){if(!model||!bounds)throw new Error('Import a model first');return rigMarkerPayload(positions,confirmed,{min:bounds.min.toArray(),max:bounds.max.toArray()});}
   function pickMarker() {
     const hits=raycaster.intersectObjects([...markerMeshes.values()],false);
     return hits.length?hits[0].object.userData.markerKey:null;
@@ -181,5 +183,5 @@ export function createMarkerTool({scene, camera, renderer, controls, meshes, onC
     camera.position.copy(center).addScaledVector(direction,distance);
     controls.target.copy(center); camera.lookAt(center);camera.updateProjectionMatrix();controls.update();
   }
-  return {setModel,setActive,choose,setSymmetry,setPreview,suggest,confirmAll,getStatus,asDraft,loadDraft,frameView};
+  return {setModel,setActive,choose,setSymmetry,setPreview,suggest,confirmAll,getStatus,asDraft,asRigPayload,loadDraft,frameView};
 }
