@@ -63,3 +63,14 @@ Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime moca
 - Requires Windows Blender worker and unrigged upright T/A-pose humanoid.
 - Model-fitting/weight quality requires user validation; **not AI-based yet**.
 - Next: better skeleton fitting, editable joint landmarks, bone-weight correction and rigged export verification.
+
+## Alpha 0.2.0 — Assisted joint markers preview (first build)
+
+- [x] Eight adjustable marker points: chin, groin, bilateral elbows, wrists, knees.
+- [x] Rough starting positions, selectable marker list, drag and click-to-place.
+- [x] Front/side/perspective viewport presets and X-axis mirror editing.
+- [x] Independent skeleton guide, confirmed marker status, JSON save/load.
+- [x] Keep Alpha 0.1 procedural generator unchanged and clearly labeled as ignoring markers.
+- [ ] Artist validation with both A-Pose and T-Pose FBX assets.
+- [ ] True joint inference and fitting, including 3D joint centers.
+- [ ] Integrate validated markers into Blender rig creation and Auto-Skin.

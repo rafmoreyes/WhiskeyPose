@@ -4,7 +4,7 @@
 
 WhiskeyPose is a small, FBX-first web application. The eventual goal is to import an unrigged character, automatically create a skeleton and skin weights, edit a pose, and export a usable FBX without a heavyweight DCC workflow.
 
-## Current version — Alpha 0.1.0 (procedural Auto-Rig pilot)
+## Current version — Alpha 0.2.0 (Assisted Joint Markers preview)
 
 **Implemented:**
 - Import/inspect `.fbx` models in the browser, with viewport orbit/pan/zoom, framing, grid, wireframe and bone visualization.
@@ -89,3 +89,19 @@ Selections are kept in `%APPDATA%\WhiskeyPose\engines.json` on Windows (or
 `~/.config/WhiskeyPose/engines.json` on Linux), not in the Git repository.
 No Blender installation is downloaded or modified. Everything runs locally.
 See `docs/BLENDER_ENGINES.md` for troubleshooting and security considerations.
+
+## Alpha 0.2.0 — Assisted Auto-Rig: Joint Markers (first build)
+
+**New:** A Mixamo-like, **non-destructive marker placement preview** in the **Rig** tab.
+
+1. Import an unrigged `.fbx` in A-Pose or T-Pose. Open **Rig → Joint markers**.
+2. The eight anatomically named markers (chin, groin, left/right elbows, wrists and knees) appear with rough **blue suggestions**. These suggestions are bounding-box estimates, **not anatomy detection**.
+3. Click a row to select the marker, then **click the model** to place it or **drag the sphere** in the viewport. Green means placed/confirmed; gold means selected.
+4. Use the new **Front / Side / 3/4** view presets to check alignment. Dragging in the Side view lets you correct depth. **Mirror L/R** can reflect edits around the character centerline.
+5. Show/hide the **Skeleton guide** (visual lines, not actual bones); use **Confirm all** after inspecting the placement. **Save markers JSON** stores a reusable marker draft and **Load markers** restores it for the same character. Markers remain entirely in browser memory until saved.
+
+**Explicit scope:** This build does **NOT** use marker coordinates in rig generation and does **NOT** change the Auto-Skin algorithm. The **Previous auto-rig** section in the Rig panel is the unchanged Alpha 0.1 bone-template generator; its button explicitly says it *ignores markers*. A complete marker-to-skeleton solver, automatic anatomy/pose detection and using landmarks to deform or rig a mesh are future tasks. This deliberate separation keeps the previously validated FBX path intact.
+
+**Technical architecture:** Joint markers are rendered by Three.js in the browser; they require **no Python worker, Blender or cloud service**. The existing Python/Blender worker remains required only for procedural rig/skin and FBX export. The new data model lives in `src/marker_math.js`, the interactive viewport controls in `src/marker_tool.js`, and the workflow UI in `src/main.js`.
+
+**Testing:** `node --test tests/marker_math.test.mjs` checks marker pairs, mirroring, suggestions and JSON validation. Full UI drag/interaction tests and real-world FBX alignment still need artist testing in a browser.
