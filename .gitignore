@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.vite/
+.env
+.env.local
+__pycache__/
+*.py[cod]
+*.blend1
+*.blend2
+.DS_Store
+Thumbs.db
+*.log
+*.fbx
+*.glb
+*.gltf
+!fixtures/.gitkeep
