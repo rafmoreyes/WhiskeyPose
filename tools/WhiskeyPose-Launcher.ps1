@@ -249,13 +249,13 @@ $caption.ForeColor=$muted
 $caption.Location=New-Object System.Drawing.Point(20,204)
 $caption.Size=New-Object System.Drawing.Size(220,20)
 $script:Form.Controls.Add($caption)
-$logs=New-Object System.Windows.Forms.LinkLabel
-$logs.Text='Abrir logs'
-$logs.LinkColor=$gold
-$logs.ActiveLinkColor=$fg
-$logs.Location=New-Object System.Drawing.Point(360,204)
-$logs.Size=New-Object System.Drawing.Size(84,20)
-$script:Form.Controls.Add($logs)
+$logLink=New-Object System.Windows.Forms.LinkLabel
+$logLink.Text='Abrir logs'
+$logLink.LinkColor=$gold
+$logLink.ActiveLinkColor=$fg
+$logLink.Location=New-Object System.Drawing.Point(360,204)
+$logLink.Size=New-Object System.Drawing.Size(84,20)
+$script:Form.Controls.Add($logLink)
 $script:Output=New-Object System.Windows.Forms.TextBox
 $script:Output.ReadOnly=$true
 $script:Output.Multiline=$true
@@ -280,7 +280,7 @@ $script:Tray.ContextMenuStrip=$menu
 $script:Start.Add_Click({StartAll})
 $open.Add_Click({OpenEdge})
 $script:Stop.Add_Click({StopServices})
-$logs.Add_Click({Start-Process -FilePath 'explorer.exe' -ArgumentList ('"'+$script:Logs+'"')})
+$logLink.Add_Click({Start-Process -FilePath 'explorer.exe' -ArgumentList ('"'+$script:Logs+'"')})
 $showItem.Add_Click({$script:Form.Show();$script:Form.WindowState='Normal';$script:Form.Activate()})
 $edgeItem.Add_Click({OpenEdge})
 $exitItem.Add_Click({$script:AllowExit=$true;StopServices;$script:Tray.Visible=$false;$script:Form.Close()})
