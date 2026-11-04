@@ -4,6 +4,10 @@
 
 WhiskeyPose is a small, FBX-first web application. The eventual goal is to import an unrigged character, automatically create a skeleton and skin weights, edit a pose, and export a usable FBX without a heavyweight DCC workflow.
 
+## Windows GUI launcher (optional)
+
+For a cleaner one-click experience on Windows 11, double-click **WhiskeyPose.vbs** in the repository. It opens a compact native launcher (Iniciar / Atualizar, Abrir Edge, Encerrar) with the Worker and Vite hidden, auto git pull, a tray icon and accessible logs. If Windows Script Host is disabled, use **WhiskeyPose-Launcher.cmd** instead. No extra dependencies; the original **Iniciar-WhiskeyPose.bat** remains untouched as a console fallback. Close old Worker and Vite CMD sessions once before switching. See [Windows GUI Launcher](docs/WINDOWS_GUI_LAUNCHER.md) for details.
+
 ## Current version — Alpha 0.3.0 (Smart Skin Envelopes pilot)
 
 **Implemented:**
