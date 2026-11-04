@@ -9,6 +9,7 @@ import { fitEnvelopes, validateEnvelopeDraft } from './envelope_math.js';
 import { createEnvelopeTool } from './envelope_tool.js';
 import { createLiveSkin } from './live_skin.js';
 import { createDeformationTest, DEFORMATION_SECTIONS } from './deformation_test.js';
+import {createSoftInfluenceTool} from './soft_influence_tool.js';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -18,7 +19,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.4 <span class="version-note">AUTOMATIC SKIN</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.5 <span class="version-note">SSR + SOFT BRUSH</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -81,7 +82,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, brushEnabled: false, brushErase:false, brushRadius:.035, brushStrength:.28, brushDirty:false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 const deformationTest=createDeformationTest(THREE);
 let deformationLastFrame=0;
 let notifyTimer;
@@ -141,6 +142,33 @@ const markerTool = createMarkerTool({
   },
 });
 
+const softTool=createSoftInfluenceTool({
+  renderer,camera,scene,controls,
+  meshes:()=>state.skinnedMeshes,
+  liveSkin:()=>state.liveSkin,
+  onChange:()=>{
+    state.brushDirty=true;
+    const counter=$('#sib-count');
+    if(counter)counter.textContent=String(state.liveSkin?.paintedCount()??0);
+  },
+  onStrokeEnd:()=>{
+    state.brushDirty=(state.liveSkin?.paintedCount()??0)>0;
+    const counter=$('#sib-count');
+    if(counter)counter.textContent=String(state.liveSkin?.paintedCount()??0);
+    const save=$('#envelope-rebuild');
+    if(save)save.textContent=state.brushDirty?'Save SIB Skin FBX':'Download Automatic Skin FBX';
+  }
+});
+function syncSoftTool(){
+  const available=Boolean(state.liveSkin&&state.activeTab==='skin'
+    &&state.skinMethod==='smart-auto'&&!state.envelopeOverride);
+  softTool.configure({
+    name:state.selectedEnvelope,
+    radius:state.brushRadius*Math.max(.01,state.liveSkin?.height??1),
+    strength:state.brushStrength,erase:state.brushErase
+  });
+  softTool.setActive(state.brushEnabled&&available);
+}
 function resizeViewport() {
   const w = Math.max(1, viewport.clientWidth), h = Math.max(1, viewport.clientHeight);
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
@@ -184,6 +212,7 @@ function frameModel() {
 
 function destroyModel() {
   deformationTest.attach([]);
+  state.brushEnabled=false;state.brushDirty=false;softTool.setActive(false);
   state.liveSkin?.dispose();state.liveSkin=null;state.liveError=null;
   markerTool.setModel(null);
   envelopeTool.clear();
@@ -284,6 +313,7 @@ function setTab(tab) {
   envelopeTool.setActive(tab === 'skin' || (tab === 'pose' && Boolean(state.liveSkin)));
   state.liveSkin?.toggleHeatmap(state.showSkinHeatmap && tab==='skin');
   state.liveSkin?.toggleRegions(state.showSkinRegions && tab==='skin');
+  syncSoftTool();
   $('#marker-views').classList.toggle('hidden', !editingMarkers);
   $('#marker-tip').classList.toggle('hidden', !editingMarkers);
   $('#active-mode').textContent = tab.toUpperCase();
@@ -476,10 +506,11 @@ function renderPanel() {
     if (active && !names.includes(state.selectedEnvelope)) state.selectedEnvelope=names[0];
     const selected=active ? state.envelopeConfig.envelopes[state.selectedEnvelope] : null;
     const envelopeMode=state.skinMethod==='envelope'||state.envelopeOverride;
+    const sibReady=Boolean(state.liveSkin&&state.skinMethod==='smart-auto'&&!state.envelopeOverride);
     const report=state.rigReport?.weights || [];
     const outside=report.reduce((sum,row)=>sum+(row.fallbackVertices||0),0);
     const total=report.reduce((sum,row)=>sum+(row.totalVertices||0),0);
-    panel.innerHTML = `${sectionTitle('Automatic Skin / Smart Regions', 'ALPHA 0.3.4')}
+    panel.innerHTML = `${sectionTitle('Automatic Skin / Smart Regions', 'ALPHA 0.3.5 SIB')}
       <div class="headline-stat"><strong>${active ? names.length : (s?.skinned ?? '—')}</strong><span>${active?'Deformation bones':'Skinned meshes'}</span></div>
       ${active ? `
       <label class="field-label" for="skin-method">SKINNING METHOD</label>
@@ -508,8 +539,20 @@ function renderPanel() {
        : state.skinMethod==='envelope'||state.envelopeOverride
        ? 'Advanced envelope mode: sliders replace automatic weights. SSR still limits cross-region influence.'
        : 'Legacy Blender weights, without SSR post-processing.')}
+      ${sibReady ? `<section class="sib-section">
+        ${sectionTitle('Soft Influence Brush','SURFACE PAINT')}
+        <label class="envelope-show"><input id="sib-enable" type="checkbox" ${state.brushEnabled?'checked':''}/> <strong>Paint influence on mesh</strong></label>
+        <label class="field-label" for="sib-radius">BRUSH SIZE <strong id="sib-radius-value">${(state.brushRadius*100).toFixed(1)}% height</strong></label>
+        <input id="sib-radius" class="envelope-slider" type="range" min=".5" max="16" step=".5" value="${state.brushRadius*100}"/>
+        <label class="field-label" for="sib-strength">STRENGTH <strong id="sib-strength-value">${Math.round(state.brushStrength*100)}%</strong></label>
+        <input id="sib-strength" class="envelope-slider" type="range" min="5" max="100" step="5" value="${state.brushStrength*100}"/>
+        <label class="envelope-show"><input id="sib-erase" type="checkbox" ${state.brushErase?'checked':''}/> Reduce influence (or hold Shift)</label>
+        <p class="skin-hint">Selected bone: <strong>${escapeHtml(state.selectedEnvelope)}</strong>. Brush follows mesh topology; other bone weights adjust automatically.</p>
+        <div class="panel-row"><button class="half-button" id="sib-undo">Undo stroke</button><button class="half-button" id="sib-reset">Reset brush</button></div>
+        <div class="live-summary">Edited vertices <strong id="sib-count">${state.liveSkin?.paintedCount()??0}</strong></div>
+      </section>` : ''}
       ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
-      ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':state.skinMethod==='smart-auto'?'Generate Automatic Rig + Skin':'Generate Rig + Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':envelopeMode?'Save Edited Skin FBX':'Download Automatic Skin FBX'}</button>` : ''}
+      ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':state.skinMethod==='smart-auto'?'Generate Automatic Rig + Skin':'Generate Rig + Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':envelopeMode?'Save Edited Skin FBX':state.brushDirty?'Save SIB Skin FBX':'Download Automatic Skin FBX'}</button>` : ''}
       ${state.liveSkin ? `<div class="live-status">● ${envelopeMode?'LIVE ENVELOPE OVERRIDE':'AUTOMATIC SSR SKIN'} · No FBX reload</div><div class="live-summary">${envelopeMode?'Outside-envelope vertices':'Fallback vertices'}: <strong id="live-outside-count">${envelopeMode?(state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'):`${formatCount(report.reduce((sum,r)=>sum+(r.seedFallbackVertices||0),0))} / ${formatCount(report.reduce((sum,r)=>sum+(r.vertices||0),0))}`}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
       ` : information(s?.bones ? 'This FBX was imported with a rig. Envelope editing currently applies to skeletons built from WhiskeyPose markers.' : 'Go to Rig, confirm the 16 markers and approve the skeleton. Automatic Skin will generate weights without requiring envelope edits.')}
       ${report.length && !state.liveSkin ? `<div class="metrics">${metric('Envelope skin',state.rigReport.skinMode==='envelope'?'Used':'Not used')}${metric('Outside-envelope vertices',total?`${formatCount(outside)} / ${formatCount(total)} (${(outside/total*100).toFixed(1)}%)`:'—')}</div>` : ''}
@@ -520,16 +563,27 @@ function renderPanel() {
     $('#skin-wire').addEventListener('click', () => {state.wire=!state.wire;$('#toggle-wire').classList.toggle('toggled',state.wire);updateWire();renderPanel();});
     if (active) {
       refreshEnvelopePreview();
-      $('#skin-method').addEventListener('change',event=>{state.skinMethod=event.target.value;state.envelopeOverride=false;scheduleLiveSkinUpdate();renderPanel();});
-      $('#envelope-override')?.addEventListener('change',event=>{state.envelopeOverride=event.target.checked;
+      syncSoftTool();
+      $('#skin-method').addEventListener('change',event=>{if(event.target.value!=='smart-auto' && state.liveSkin?.paintedCount()>0){
+        notify('SIB edits exist. Save or Reset brush before switching skin method.','error');
+        renderPanel();return;
+      }
+      state.skinMethod=event.target.value;state.envelopeOverride=false;state.brushEnabled=false;syncSoftTool();scheduleLiveSkinUpdate();renderPanel();});
+      $('#envelope-override')?.addEventListener('change',event=>{
+        if(event.target.checked&&state.liveSkin?.paintedCount()>0){
+          notify('SIB brush edits must be reset before using Envelope Override.','error');
+          event.target.checked=false;return;
+        }
+        state.envelopeOverride=event.target.checked;
         state.envelopeDirty=state.envelopeOverride;
         if(!state.envelopeOverride&&state.autoRiggedFile){
           state.file=state.autoRiggedFile;
           state.riggedFile=state.autoRiggedFile;
           state.rigReport=state.autoRigReport;
         }
+        state.brushEnabled=false;syncSoftTool();
         refreshEnvelopePreview();scheduleLiveSkinUpdate();renderPanel();});
-      $('#envelope-bone').addEventListener('change',event=>{state.selectedEnvelope=event.target.value;scheduleLiveSkinUpdate();renderPanel();});
+      $('#envelope-bone').addEventListener('change',event=>{state.selectedEnvelope=event.target.value;syncSoftTool();scheduleLiveSkinUpdate();renderPanel();});
       $('#envelope-radius').addEventListener('input',event=>{
         const radius=Number(event.target.value)/100;
         updateEnvelope(state.selectedEnvelope,{radius});
@@ -562,8 +616,40 @@ function renderPanel() {
         if (state.envelopeDefaults?.envelopes?.[state.selectedEnvelope]) updateEnvelope(state.selectedEnvelope,{...state.envelopeDefaults.envelopes[state.selectedEnvelope]});
         renderPanel();
       });
+      $('#sib-enable')?.addEventListener('change',event=>{
+        state.brushEnabled=event.target.checked;
+        if(state.brushEnabled){
+          state.showSkinRegions=false;state.showSkinHeatmap=true;
+          state.liveSkin?.toggleRegions(false);
+          state.liveSkin?.toggleHeatmap(true);
+        }
+        syncSoftTool();renderPanel();
+      });
+      $('#sib-radius')?.addEventListener('input',event=>{
+        state.brushRadius=Number(event.target.value)/100;
+        $('#sib-radius-value').textContent=(state.brushRadius*100).toFixed(1)+'% height';
+        syncSoftTool();
+      });
+      $('#sib-strength')?.addEventListener('input',event=>{
+        state.brushStrength=Number(event.target.value)/100;
+        $('#sib-strength-value').textContent=Math.round(state.brushStrength*100)+'%';
+        syncSoftTool();
+      });
+      $('#sib-erase')?.addEventListener('change',event=>{state.brushErase=event.target.checked;syncSoftTool();});
+      $('#sib-undo')?.addEventListener('click',()=>{
+        if(state.liveSkin?.undoBrushStroke(state.selectedEnvelope)){
+          state.brushDirty=state.liveSkin.paintedCount()>0;renderPanel();
+        }
+      });
+      $('#sib-reset')?.addEventListener('click',()=>{
+        if(!state.liveSkin)return;
+        state.liveSkin.resetBrush(state.selectedEnvelope);
+        state.brushDirty=false;
+        if(state.autoRiggedFile){state.file=state.autoRiggedFile;state.riggedFile=state.autoRiggedFile;}
+        renderPanel();
+      });
       $('#envelope-generate')?.addEventListener('click',()=>generateRig());
-      $('#envelope-rebuild')?.addEventListener('click',()=>generateRig({rebuild:true}));
+      $('#envelope-rebuild')?.addEventListener('click',()=>state.brushDirty&&state.skinMethod==='smart-auto'&&!state.envelopeOverride?savePaintedSkin():generateRig({rebuild:true}));
       if(state.liveSkin){bindSkinPoseControls(panel);bindDeformationPanel();$('#save-pose-skin')?.addEventListener('click',downloadPose);}
     } else envelopeTool.clear();
   } else {
@@ -696,11 +782,41 @@ function updateExportUI() {
   button.disabled = !state.file || !state.workerReady;
   button.title = !state.file ? 'Import an FBX first' : !state.workerReady ? 'Start the Blender worker (start-worker.cmd)' : 'Experimental Blender FBX round-trip';
 }
+async function savePaintedSkin(){
+  if(!state.liveSkin||!state.brushDirty||state.processing)return;
+  if(!state.workerReady){notify('Blender Worker offline. Brush changes remain in viewport.','error');return;}
+  const source=state.autoRiggedFile||state.riggedFile;
+  if(!source){notify('Generate Automatic Skin before painting.','error');return;}
+  const edits=state.liveSkin.getBrushEdits();
+  const count=edits.meshes.reduce((n,m)=>n+m.samples.length,0);
+  if(!count){state.brushDirty=false;saveBlob(source,source.name);return;}
+  state.processing=true;state.brushEnabled=false;syncSoftTool();renderPanel();
+  notify('Saving SIB corrections into your FBX without resetting pose…');
+  try{
+    const payload={name:source.name,fbxBase64:await fileAsBase64(source),edits};
+    const response=await fetch('/api/skin-paint',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+    });
+    if(!response.ok){
+      const detail=await response.json().catch(()=>({error:response.statusText}));
+      throw Error(detail.error||response.statusText);
+    }
+    const report=JSON.parse(response.headers.get('X-WhiskeyPose-Report')||'{}');
+    if(report.skinMode!=='soft-influence-brush'||(report.matched??0)<count)
+      throw Error('Worker did not confirm all SIB edits. Export cancelled.');
+    const blob=await response.blob();
+    const output=new File([blob],source.name.replace(/\.fbx$/i,'')+'_SIB.fbx',{type:'application/octet-stream'});
+    state.file=output;state.riggedFile=output;state.brushDirty=false;
+    saveBlob(output,output.name);
+    notify('SIB weights saved into FBX; viewport pose preserved. Check in Blender.','success');
+  }catch(error){notify('SIB export failed: '+error.message,'error');console.error(error);}
+  finally{state.processing=false;renderPanel();}
+}
 async function generateRig({rebuild=false}={}) {
   // The originally generated automatic FBX is already available. Avoid a
   // redundant Blender job when no advanced envelope correction was made.
   if(rebuild && state.skinMethod==='smart-auto' && !state.envelopeOverride && state.riggedFile){
-    saveBlob(state.autoRiggedFile||state.riggedFile,(state.autoRiggedFile||state.riggedFile).name);
+    saveBlob(state.riggedFile,state.riggedFile.name);
     notify('Automatic Skin FBX downloaded. Current pose preserved.','success');
     return;
   }
@@ -772,6 +888,7 @@ function fileAsBase64(file) {
 }
 async function exportFBX() {
   if (!state.file || !state.workerReady) return;
+  if(state.brushDirty){setTab('skin');notify('Save SIB Skin FBX before exporting your painted skin.','error');return;}
   if(state.liveSkin && state.envelopeDirty && (state.skinMethod==='envelope'||state.envelopeOverride)){setTab('skin');notify('Save Edited Skin FBX first. The current FBX does not contain your latest live envelope changes.','error');return;}
   if (!confirm('Experimental export: Blender will re-import and export the FBX. Pose transfer for existing rigs is approximate and needs manual verification. Continue?')) return;
   const button = $('#export-fbx-top');

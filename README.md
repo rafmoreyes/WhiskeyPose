@@ -8,7 +8,21 @@ WhiskeyPose is a small, FBX-first web application. The eventual goal is to impor
 
 For a cleaner one-click experience on Windows 11, double-click **WhiskeyPose.vbs** in the repository. It opens a compact native launcher (Iniciar / Atualizar, Abrir Edge, Encerrar) with the Worker and Vite hidden, auto git pull, a tray icon and accessible logs. If Windows Script Host is disabled, use **WhiskeyPose-Launcher.cmd** instead. No extra dependencies; the original **Iniciar-WhiskeyPose.bat** remains untouched as a console fallback. Close old Worker and Vite CMD sessions once before switching. See [Windows GUI Launcher](docs/WINDOWS_GUI_LAUNCHER.md) for details.
 
-## Current version — Alpha 0.3.0 (Smart Skin Envelopes pilot)
+## Alpha 0.3.5 — SSR + Soft Influence Brush (SIB)
+
+**Skin workflow:** generate the automatic SSR rig and skin first, then use the surface-based Soft Influence Brush to correct only the regions that still deform poorly. You no longer need to find an envelope radius to reach the face of a forearm, shoulder, chest or garment.
+
+1. Import an **unrigged** humanoid FBX, confirm all 16 anatomical markers and approve the skeleton; generate with **Automatic Skin — SSR + topology**.
+2. In **Skin**, select a bone under **Inspect Bone**, then check **Paint influence on mesh**.
+3. Paint on the visible mesh surface. **Brush Size** sets a radius relative to character height; **Strength** controls how quickly influence changes. Hold **Shift** while painting (or check **Reduce influence**) to remove weight from that bone. No per-vertex painting UI is required.
+4. The tool uses the *posed* mesh, follows triangle connectivity (UV seams are welded), shows the selected bone heatmap and updates skin weights instantly. Four influences maximum are maintained; neighboring weights are renormalized. Use **Undo stroke** or **Reset brush** to correct changes. The automatic **Deformation Test** still works without altering the saved artistic pose.
+5. Click **Save SIB Skin FBX**. The local Blender Worker re-imports the original generated FBX and transfers only changed vertices using normalized rest-space positions. **It rejects export if any sample cannot be matched reliably.** The viewport pose is retained and skin is written in Rest Pose. The original SSR FBX remains available for re-export/reset.
+
+**Experimental limitations:** no global semantic AI, no real-FBX/Windows confirmation yet. The normalized-coordinate transfer assumes the same Blender/Three.js FBX orientation as the marker pipeline; object name mismatches, merged/moved geometry or nonstandard axis conversions can prevent saving. The backend fails explicitly rather than claiming a correct export. Brush works on the visible skinned surface, not through occluded meshes. SIB and Envelope Override are intentionally **not mixed** in this pilot; reset SIB to use the legacy editor. Validate shoulder/hip transitions and clothing in Blender/Unreal.
+
+Full acceptance steps: [Alpha 0.3.5 SIB tests](docs/ALPHA_0_3_5_SIB_TESTS.md).
+
+## Previous milestones — Auto-Rig, Envelopes and SSR
 
 **Implemented:**
 - Import/inspect `.fbx` models in the browser, with viewport orbit/pan/zoom, framing, grid, wireframe and bone visualization.

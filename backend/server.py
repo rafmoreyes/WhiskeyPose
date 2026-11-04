@@ -20,6 +20,7 @@ from threading import Lock
 
 from marker_rig import validate_payload
 from envelope_skin import validate_envelopes
+from skin_paint import validate_paint_edits
 from blender_engine import (active_blender, browse_blender, discover_blenders,
                             read_config, save_path, test_blender)
 
@@ -29,6 +30,7 @@ MAX_POST_BYTES = 75 * 1024 * 1024
 MAX_FBX_BYTES = 50 * 1024 * 1024
 ROUNDTRIP_SCRIPT = Path(__file__).with_name('fbx_roundtrip.py')
 AUTORIG_SCRIPT = Path(__file__).with_name('auto_rig.py')
+PAINT_SCRIPT = Path(__file__).with_name('skin_paint_fbx.py')
 PROCESS_LOCK = Lock()
 ENGINE_DIALOG_LOCK = Lock()
 
@@ -53,7 +55,7 @@ class Handler(BaseHTTPRequestHandler):
             blender = active_blender()
             self.reply_json(200, {
                 'service': 'whiskeypose-local-worker',
-                'version': '0.3.0',
+                'version': '0.3.5',
                 'blenderAvailable': bool(blender),
                 'blenderPath': blender['path'] if blender else None,
                 'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(blender),
@@ -72,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ('/api/engines/select', '/api/engines/test', '/api/engines/browse'):
             self.engine_action()
             return
-        if self.path not in ('/api/export-fbx', '/api/auto-rig'):
+        if self.path not in ('/api/export-fbx', '/api/auto-rig', '/api/skin-paint'):
             self.reply_json(404, {'error': 'Not found'})
             return
         blender = find_blender()
@@ -168,6 +170,18 @@ class Handler(BaseHTTPRequestHandler):
                         envelope_path = directory / 'envelopes.json'
                         envelope_path.write_text(json.dumps(payload['envelopes']), encoding='utf-8')
                         command += ['--envelopes', str(envelope_path)]
+                elif self.path == '/api/skin-paint':
+                    # Edits are from visible mesh surface, already normalized
+                    # and bounded. Blender verifies every spatial match before export.
+                    sections, sample_count = validate_paint_edits(payload.get('edits'))
+                    if sample_count > 65000:
+                        self.reply_json(413, {'error': 'Too many SIB samples'}); return
+                    edits_path = directory / 'sib-edits.json'
+                    edits_path.write_text(json.dumps(payload['edits']), encoding='utf-8')
+                    command = [blender, '--background', '--factory-startup', '--python',
+                               str(PAINT_SCRIPT), '--', '--input', str(source),
+                               '--output', str(target), '--report', str(report),
+                               '--edits', str(edits_path)]
                 else:
                     pose = payload.get('pose')
                     if pose is not None and (not isinstance(pose, dict) or not isinstance(pose.get('bones'), list)):
@@ -203,5 +217,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     print(f'WhiskeyPose Blender worker: http://{HOST}:{PORT}')
     print('Blender:', find_blender() or 'NOT FOUND — set BLENDER_PATH')
-    print('Alpha 0.3.0 envelope skin + 16-marker rig (experimental).')
+    print('Alpha 0.3.5 SSR + Soft Influence Brush (experimental).')
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

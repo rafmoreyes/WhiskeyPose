@@ -37,8 +37,10 @@ const math=readFileSync(new URL('../src/envelope_math.js',import.meta.url),'utf8
 const mathUrl='data:text/javascript;base64,'+Buffer.from(math).toString('base64');
 const regions=readFileSync(new URL('../src/smart_regions.js',import.meta.url),'utf8');
 const regionsUrl='data:text/javascript;base64,'+Buffer.from(regions).toString('base64');
+const softMath=readFileSync(new URL('../src/soft_influence_math.js',import.meta.url),'utf8');
+const softMathUrl='data:text/javascript;base64,'+Buffer.from(softMath).toString('base64');
 let source=readFileSync(new URL('../src/live_skin.js',import.meta.url),'utf8');
-source=source.replace("import * as THREE from 'three';","const THREE = globalThis.__WP_TEST_THREE;").replace("from './envelope_math.js'",`from '${mathUrl}'`).replace("from './smart_regions.js'",`from '${regionsUrl}'`);
+source=source.replace("import * as THREE from 'three';","const THREE = globalThis.__WP_TEST_THREE;").replace("from './envelope_math.js'",`from '${mathUrl}'`).replace("from './smart_regions.js'",`from '${regionsUrl}'`).replace("from './soft_influence_math.js'",`from '${softMathUrl}'`);
 const live=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const names=['pelvis','spine','chest','neck','head'];
 for(const side of ['L','R'])for(const part of ['shoulder','upper_arm','forearm','hand','thigh','shin','foot'])names.push(`${part}.${side}`);
@@ -109,5 +111,34 @@ test('automatic mode preserves Blender FBX weights even after optional envelope 
   assert.notDeepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),original);
   ctl.update(settings,'pelvis','smart-auto');
   assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),original);
+  ctl.dispose();
+});
+
+test('SIB directly edits live skinned buffers, undo restores them, while pose remains unchanged',()=>{
+  const {mesh}=rig(),settings=config();
+  const inputIndex=new Uint16Array(16),inputWeights=new Float32Array(16);
+  for(let i=0;i<4;i++){inputIndex[i*4]=0;inputIndex[i*4+1]=1;inputWeights[i*4]=.8;inputWeights[i*4+1]=.2;}
+  mesh.geometry.setAttribute('skinIndex',new Attribute(inputIndex,4));
+  mesh.geometry.setAttribute('skinWeight',new Attribute(inputWeights,4));
+  mesh.matrixWorld=new Matrix4();mesh.name='Body';
+  const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+  ctl.update(settings,'pelvis','smart-auto');
+  const before=Array.from(mesh.geometry.getAttribute('skinWeight').array);
+  const poseRef=mesh.skeleton.bones[0].matrixWorld;
+  ctl.beginBrushStroke();
+  const count=ctl.paintHit({object:mesh,face:{a:0,b:1,c:2},point:{toArray:()=>[.05,0,0]}},
+    'pelvis',.5,.35,false);
+  assert.ok(count>0);
+  assert.equal(ctl.endBrushStroke(),true);
+  assert.notDeepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),before);
+  assert.ok(ctl.paintedCount()>0);
+  const exportData=ctl.getBrushEdits();
+  assert.equal(exportData.format,'whiskeypose-sib-v1');
+  assert.ok(exportData.meshes[0].samples.length>0);
+  assert.ok(Math.abs(exportData.meshes[0].samples[0].w.reduce((sum,entry)=>sum+entry[1],0)-1)<1e-5);
+  assert.strictEqual(mesh.skeleton.bones[0].matrixWorld,poseRef);
+  assert.equal(ctl.undoBrushStroke('pelvis'),true);
+  assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),before);
+  assert.equal(ctl.paintedCount(),0);
   ctl.dispose();
 });

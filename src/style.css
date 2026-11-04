@@ -104,3 +104,13 @@
 .inspector-content::-webkit-scrollbar-track{background:#181b1e}
 .inspector-content::-webkit-scrollbar-thumb{background:#566064;border-radius:8px;border:2px solid #181b1e}
 .inspector-content:focus-visible{outline:2px solid #d3a267;outline-offset:-2px}
+
+/* Alpha 0.3.5 — surface-based Soft Influence Brush. Deliberately compact. */
+.sib-section{border:1px solid #4a483e;background:#262727;border-radius:9px;padding:13px 12px;margin:16px 0 18px}
+.sib-section .panel-section-title{margin-bottom:12px}
+.sib-section .envelope-slider{margin:3px 0 14px}
+.sib-section .envelope-show{margin-bottom:10px}
+.sib-section .panel-row{margin:12px 0}
+.sib-section .live-summary{margin:8px 0 0}
+.sib-section .skin-hint strong{color:#eab575}
+.sib-section .half-button{min-width:0;flex:1}
