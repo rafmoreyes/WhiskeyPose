@@ -11,6 +11,7 @@ $script:Job=$null
 $script:Worker=$null
 $script:Vite=$null
 $script:Reused=$false
+$script:UpdateWarning=$null
 $script:Deadline=[DateTime]::MinValue
 $script:AllowExit=$false
 $script:PollNumber=0
@@ -57,6 +58,34 @@ function Hidden([string]$exe,[string[]]$arguments,[string]$label){
   $stderr=Join-Path $script:Logs ($label+'.err.log')
   Log ('Starting '+$label+' without a console. Output in Logs folder.')
   Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $script:Root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+}
+function RecentProcessError([string]$label) {
+  # Keep subprocess output visible in this single window, not only on disk.
+  foreach($name in @($label+'.err.log',$label+'.out.log')){
+    $path=Join-Path $script:Logs $name
+    try {
+      if(Test-Path -LiteralPath $path -PathType Leaf){
+        $lines=@(Get-Content -LiteralPath $path -Tail 8 -ErrorAction Stop |
+          Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if($lines.Count -gt 0){
+          $message=($lines -join ' | ').Trim()
+          if($message.Length -gt 600){return $message.Substring($message.Length-600)}
+          return $message
+        }
+      }
+    }catch{Log ('Could not read '+$name+': '+$_.Exception.Message)}
+  }
+  return 'Nenhuma mensagem do processo disponível. Use Abrir logs.'
+}
+function ContinueWithLocalBuild([string]$reason) {
+  # Git failure must not prevent use of a previously cloned, working build.
+  # Never reset, stash, force-pull, or discard any user changes.
+  $script:UpdateWarning=$reason
+  Log ('UPDATE WARNING: '+$reason)
+  Log 'Iniciando a versão local. Nenhuma alteração do Git foi descartada.'
+  $script:Phase='starting'
+  Status 'Git não atualizou · iniciando versão local' 'warn'
+  try { StartServices } catch { Fail $_.Exception.Message }
 }
 function Fail([string]$message){
   $script:Phase='failed'
@@ -124,10 +153,17 @@ function StartAll(){
     Log 'Restart requested: stopping only services started by this launcher.'
     StopServices
   }
-  if(-not (Test-Path (Join-Path $script:Root '.git'))){Fail 'Execute dentro de um clone Git';return}
-  $git=Program 'git.exe'
-  if(-not $git){Fail 'Git não encontrado no PATH';return}
   $script:Reused=$false
+  $script:UpdateWarning=$null
+  if(-not (Test-Path (Join-Path $script:Root '.git'))){
+    ContinueWithLocalBuild 'Pasta sem metadados Git; atualização indisponível'
+    return
+  }
+  $git=Program 'git.exe'
+  if(-not $git){
+    ContinueWithLocalBuild 'Git não encontrado no PATH'
+    return
+  }
   $script:Phase='updating'
   Status 'Atualizando (git pull --ff-only)…'
   Log 'Updating from main with git pull --ff-only.'
@@ -157,7 +193,13 @@ function Poll(){
   switch($script:Phase){
     'updating'{
       if($script:Job -and $script:Job.HasExited){
-        if($script:Job.ExitCode -ne 0){Fail 'Git pull falhou';return}
+        if($script:Job.ExitCode -ne 0){
+          $detail=RecentProcessError 'git-pull'
+          Log ('git pull --ff-only retornou '+$script:Job.ExitCode+': '+$detail)
+          ContinueWithLocalBuild ('Git pull falhou: '+$detail)
+          return
+        }
+        $script:UpdateWarning=$null
         Log 'Git pull complete.'
         try{StartServices}catch{Fail $_.Exception.Message}
       }
@@ -175,8 +217,15 @@ function Poll(){
       if($script:Vite -and $script:Vite.HasExited -and -not (Up 'http://127.0.0.1:5173/')){Fail 'Vite encerrou inesperadamente';return}
       if((Up 'http://127.0.0.1:8765/api/health') -and (Up 'http://127.0.0.1:5173/')){
         $script:Phase='ready'
-        if($script:Reused){Status 'Pronto · serviço externo reutilizado' 'warn';Log 'Existing service may run older code. Close old CMD sessions to update.'}
-        else{Status 'Pronto · Worker e Vite ativos' 'good'}
+        if($script:UpdateWarning){
+          Status 'Pronto · versão local (Git não atualizou)' 'warn'
+          Log ('Atualização pendente: '+$script:UpdateWarning)
+        }elseif($script:Reused){
+          Status 'Pronto · serviço externo reutilizado' 'warn'
+          Log 'Existing service may run older code. Close old CMD sessions to update.'
+        }else{
+          Status 'Pronto · Worker e Vite ativos' 'good'
+        }
         OpenEdge
       }
     }

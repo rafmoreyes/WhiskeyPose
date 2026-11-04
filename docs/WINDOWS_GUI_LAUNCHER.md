@@ -9,3 +9,10 @@ Controls: Iniciar / Atualizar, Abrir Edge, Encerrar and Abrir logs. Logs are sav
 If an existing Worker or Vite service is already responding, the launcher reuses it but warns that it may be an older build. It never terminates processes it did not start. When switching from the original BAT launcher, close the old console windows first. Iniciar-WhiskeyPose.bat is preserved as a fully functioning fallback.
 
 No .exe packaging, installer, new dependencies or external services. Requires Windows PowerShell 5.1 and native WinForms; WhiskeyPose still requires Git, Python, Node.js, Edge and Blender for rig operations. Actual Windows UI/process behavior requires a test on Windows 11.
+
+
+## Git pull failed? (launcher 0.1.2)
+
+**A failed update no longer prevents launching.** The GUI now reads the last error messages from `git-pull.err.log` (or stdout), displays them in the Activity area, and proceeds to run the already installed *local version* if its services can start. This does NOT fix Git itself and does not claim that the repository was updated. The status remains **Pronto · versão local (Git não atualizou)** until the next successful update.
+
+To diagnose the underlying error, open the logs and inspect `git-pull.err.log` and `git-pull.out.log`. Typical causes include network access, missing upstream configuration and uncommitted local changes. **Never use git reset --hard or force-pull as a launcher workaround.** Once the issue is addressed, choose Iniciar / Atualizar to retry safely.
