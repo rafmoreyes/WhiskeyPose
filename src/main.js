@@ -19,7 +19,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.5 <span class="version-note">SSR + SOFT BRUSH</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.5a <span class="version-note">SSR + SIB GPU FIX</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -146,10 +146,16 @@ const softTool=createSoftInfluenceTool({
   renderer,camera,scene,controls,
   meshes:()=>state.skinnedMeshes,
   liveSkin:()=>state.liveSkin,
-  onChange:()=>{
-    state.brushDirty=true;
+  onChange:(changed,reducing)=>{
+    if(changed>0)state.brushDirty=true;
     const counter=$('#sib-count');
     if(counter)counter.textContent=String(state.liveSkin?.paintedCount()??0);
+    const feedback=$('#sib-feedback');
+    if(feedback)feedback.textContent=changed>0
+      ? `Weights updated on ${formatCount(changed)} vertices.`
+      : reducing
+        ? 'Nothing to reduce here: selected bone already has zero influence.'
+        : 'No change at this location: weight may already be fully assigned.';
   },
   onStrokeEnd:()=>{
     state.brushDirty=(state.liveSkin?.paintedCount()??0)>0;
@@ -546,10 +552,12 @@ function renderPanel() {
         <input id="sib-radius" class="envelope-slider" type="range" min=".5" max="16" step=".5" value="${state.brushRadius*100}"/>
         <label class="field-label" for="sib-strength">STRENGTH <strong id="sib-strength-value">${Math.round(state.brushStrength*100)}%</strong></label>
         <input id="sib-strength" class="envelope-slider" type="range" min="5" max="100" step="5" value="${state.brushStrength*100}"/>
-        <label class="envelope-show"><input id="sib-erase" type="checkbox" ${state.brushErase?'checked':''}/> Reduce influence (or hold Shift)</label>
+        <label class="envelope-show"><input id="sib-erase" type="checkbox" ${state.brushErase?'checked':''}/> <strong>REDUCE selected bone</strong> (or hold Shift)</label>
+        <p class="skin-hint" id="sib-mode-hint">${state.brushErase?'REDUCE: removing the selected bone influence. Uncheck to add weight.':'ADD: adding influence to the selected bone. Hold Shift to reduce.'}</p>
         <p class="skin-hint">Selected bone: <strong>${escapeHtml(state.selectedEnvelope)}</strong>. Brush follows mesh topology; other bone weights adjust automatically.</p>
         <div class="panel-row"><button class="half-button" id="sib-undo">Undo stroke</button><button class="half-button" id="sib-reset">Reset brush</button></div>
         <div class="live-summary">Edited vertices <strong id="sib-count">${state.liveSkin?.paintedCount()??0}</strong></div>
+        <div class="skin-hint" id="sib-feedback" role="status" aria-live="polite">Strength controls each stroke, not a target weight. Bend this joint in Pose Test to see the deformation.</div>
       </section>` : ''}
       ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
       ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':state.skinMethod==='smart-auto'?'Generate Automatic Rig + Skin':'Generate Rig + Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':envelopeMode?'Save Edited Skin FBX':state.brushDirty?'Save SIB Skin FBX':'Download Automatic Skin FBX'}</button>` : ''}
@@ -635,7 +643,7 @@ function renderPanel() {
         $('#sib-strength-value').textContent=Math.round(state.brushStrength*100)+'%';
         syncSoftTool();
       });
-      $('#sib-erase')?.addEventListener('change',event=>{state.brushErase=event.target.checked;syncSoftTool();});
+      $('#sib-erase')?.addEventListener('change',event=>{state.brushErase=event.target.checked;syncSoftTool();const hint=$('#sib-mode-hint');if(hint)hint.textContent=state.brushErase?'REDUCE: removing the selected bone influence. Uncheck to add weight.':'ADD: adding influence to the selected bone. Hold Shift to reduce.';});
       $('#sib-undo')?.addEventListener('click',()=>{
         if(state.liveSkin?.undoBrushStroke(state.selectedEnvelope)){
           state.brushDirty=state.liveSkin.paintedCount()>0;renderPanel();

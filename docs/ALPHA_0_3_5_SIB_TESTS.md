@@ -26,3 +26,9 @@ The older Envelope Override stays available as an alternative; **do not mix it w
 
 ## Important limitations
 No actual Steam Blender/FBX or WebGL interaction was available to the code test environment; validate visually. Transfer uses nearest normalized **rest positions**, not stable FBX vertex IDs; it rejects unmatched samples but identical overlapping positions or re-imported mesh differences can be ambiguous. A future iteration may introduce stable mesh-vertex IDs or region-level edits if these cases appear in practice.
+
+## Alpha 0.3.5a — Live SIB GPU upload fix
+
+The `Uint16BufferAttribute` and `Float32BufferAttribute` constructors in Three.js 0.181 **copy** input typed arrays. In 0.3.5 the SIB updated intermediate CPU arrays and its diagnostic heatmap, but not necessarily the geometry attributes the renderer reads. The live skin now holds references to `skinIndexAttribute.array` / `skinWeightAttribute.array` and marks those actual GPU attributes `needsUpdate` on every real stroke. Tests now mock the typed-array copies and verify that changes reach the render attributes, respond to a synthetic posed-bone translation and survive Undo. Full-strength center brush effects may reach 100%; Reduce mode and zero-change feedback are more explicit.
+
+**Acceptance:** select thigh.L in Skin, enable SIB, leave **Reduce influence unchecked** to add influence, and apply a stroke. Heatmap and skin weights should respond. Bend thigh.L in Pose Test to see actual shape changes; in an unrotated rest pose, changing weights does not itself move the model. Check the reverse with Reduce. Real WebGL, FBX save and Windows Blender remain to be validated.

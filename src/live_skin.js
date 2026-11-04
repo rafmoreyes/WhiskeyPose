@@ -144,9 +144,16 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
         }
       }
       total+=vertexCount;
-      ctx.skinIndex=indices;ctx.skinWeight=weights;ctx.weightForSelected=selectedWeights;
-      ctx.geometry.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(indices,4));
-      ctx.geometry.setAttribute('skinWeight',new THREE.Float32BufferAttribute(weights,4));
+      ctx.weightForSelected=selectedWeights;
+      // TypedBufferAttribute constructors COPY the supplied typed arrays.
+      // Keep CPU writes pointing to the actual geometry attribute arrays,
+      // otherwise the heatmap changes but GPU skinning keeps stale weights.
+      const skinIndexAttribute=new THREE.Uint16BufferAttribute(indices,4);
+      const skinWeightAttribute=new THREE.Float32BufferAttribute(weights,4);
+      ctx.geometry.setAttribute('skinIndex',skinIndexAttribute);
+      ctx.geometry.setAttribute('skinWeight',skinWeightAttribute);
+      ctx.skinIndex=skinIndexAttribute.array;
+      ctx.skinWeight=skinWeightAttribute.array;
       if(showHeatmap||showRegions)colorize(ctx);
     }
     return {outside,total,regions,regionMode:currentRegionMode};
@@ -208,7 +215,7 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     const rest=ctx.segments;
     for(const [i,falloff] of affected){
       const offset=i*4;
-      const value=Math.min(.95,Math.max(.005,strength))*falloff;
+      const value=Math.min(1,Math.max(.005,strength))*falloff;
       if(value<.0001)continue;
       let fallbackIndex=-1,nearest=Infinity;
       // For a 100%-rigid vertex, decreasing a bone must transfer ownership.
@@ -228,14 +235,13 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
           if(d<nearest){nearest=d;fallbackIndex=candidate.index;}
         }
       }
-      if(!prev.has(i)){
-        prev.set(i,{
-          indices:Array.from(ctx.paintedIndices.subarray(offset,offset+4)),
-          weights:Array.from(ctx.paintedWeights.subarray(offset,offset+4))
-        });
-      }
+      const original=!prev.has(i) ? {
+        indices:Array.from(ctx.paintedIndices.subarray(offset,offset+4)),
+        weights:Array.from(ctx.paintedWeights.subarray(offset,offset+4))
+      } : null;
       if(editInfluence(ctx.paintedIndices,ctx.paintedWeights,offset,boneIndex,
             erase?-value:value,fallbackIndex)){
+        if(original)prev.set(i,original); // No-op dabs must not create undo entries.
         count++;
         for(let j=0;j<4;j++){
           ctx.skinIndex[offset+j]=ctx.paintedIndices[offset+j];

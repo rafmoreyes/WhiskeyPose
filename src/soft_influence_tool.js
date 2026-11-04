@@ -36,7 +36,7 @@ export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,l
   function paint(result){
     if(!result||!liveSkin())return;
     const n=liveSkin().paintHit(result,name,radius,strength,erase);
-    if(n>0)onChange?.(n);
+    onChange?.(n,erase);
   }
   function down(event){
     if(!enabled||event.button!==0)return;

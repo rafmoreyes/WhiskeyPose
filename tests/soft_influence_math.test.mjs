@@ -26,3 +26,13 @@ test('duplicate vertices across UV seams are connected',()=>{
  const neighbors=makeAdjacency(p,[[0,1,2],[3,4,5]],1e-6);
  assert.ok(neighbors[0].includes(3));
 });
+
+test('at 100% effect, center erase fully removes selected bone influence',()=>{
+  const indexes=new Uint16Array([4,0,0,0]);
+  const weights=new Float32Array([1,0,0,0]);
+  const changed=editInfluence(indexes,weights,0,4,-1,5);
+  assert.equal(changed,true);
+  assert.equal(indexes[0],5);
+  assert.equal(weights[0],1);
+  assert.equal([...weights].reduce((a,b)=>a+b,0),1);
+});

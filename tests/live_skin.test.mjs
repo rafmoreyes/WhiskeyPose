@@ -23,6 +23,14 @@ class Vector3{
   toArray(){return [this.x,this.y,this.z];}
 }
 class Attribute{constructor(array,itemSize){this.array=array;this.itemSize=itemSize;this.count=array.length/itemSize;}}
+class CopiedUint16Attribute extends Attribute {
+  constructor(array,itemSize){super(new Uint16Array(array),itemSize);this.version=0;}
+  set needsUpdate(flag){if(flag)this.version++;}
+}
+class CopiedFloat32Attribute extends Attribute {
+  constructor(array,itemSize){super(new Float32Array(array),itemSize);this.version=0;}
+  set needsUpdate(flag){if(flag)this.version++;}
+}
 class Geometry{
   constructor(positions){this.attributes={position:new Attribute(new Float32Array(positions.flat()),3)};}
   clone(){const copy=new Geometry([]);copy.attributes={...this.attributes};return copy;}
@@ -31,7 +39,7 @@ class Geometry{
   deleteAttribute(name){delete this.attributes[name];}
 }
 class Material{dispose(){this.disposed=true;}}
-globalThis.__WP_TEST_THREE={Vector3,Uint16BufferAttribute:Attribute,Float32BufferAttribute:Attribute,
+globalThis.__WP_TEST_THREE={Vector3,Uint16BufferAttribute:CopiedUint16Attribute,Float32BufferAttribute:CopiedFloat32Attribute,
   MeshStandardMaterial:Material,DoubleSide:2};
 const math=readFileSync(new URL('../src/envelope_math.js',import.meta.url),'utf8');
 const mathUrl='data:text/javascript;base64,'+Buffer.from(math).toString('base64');
@@ -140,5 +148,67 @@ test('SIB directly edits live skinned buffers, undo restores them, while pose re
   assert.equal(ctl.undoBrushStroke('pelvis'),true);
   assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),before);
   assert.equal(ctl.paintedCount(),0);
+  ctl.dispose();
+});
+
+// THREE.Uint16BufferAttribute and THREE.Float32BufferAttribute COPY their input.
+// Regression for Alpha 0.3.5: painted CPU arrays must point at GEOMETRY arrays
+// or the heatmap changes while the actual skinned deformation stays frozen.
+test('SIB brush updates actual GPU upload arrays despite typed-array copies',()=>{
+  const {mesh}=rig(),settings=config();
+  mesh.name='TestBody';
+  const initialIndices=new Uint16Array(16);
+  const initialWeights=new Float32Array(16);
+  for(let i=0;i<4;i++){
+    initialIndices[i*4]=0;initialIndices[i*4+1]=1;
+    initialWeights[i*4]=.8;initialWeights[i*4+1]=.2;
+  }
+  mesh.geometry.setAttribute('skinIndex',new Attribute(initialIndices,4));
+  mesh.geometry.setAttribute('skinWeight',new Attribute(initialWeights,4));
+  mesh.matrixWorld=new Matrix4();
+  const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+  ctl.update(settings,'pelvis','smart-auto');
+  const indexAttr=mesh.geometry.getAttribute('skinIndex');
+  const weightAttr=mesh.geometry.getAttribute('skinWeight');
+  const before=Array.from(weightAttr.array);
+  const vertexXOffset=()=>{
+    // Simulates GPU skin blend of pelvis (+1 X) and spine (+0 X) in a test pose.
+    let sum=0;
+    for(let j=0;j<4;j++)if(indexAttr.array[j]===0)sum+=weightAttr.array[j];
+    return sum;
+  };
+  const beforeX=vertexXOffset();
+  ctl.beginBrushStroke();
+  const changed=ctl.paintHit({object:mesh,face:{a:0,b:1,c:2},
+    point:{toArray:()=>[.05,0,0]}},'pelvis',.5,.5,false);
+  assert.ok(changed>0);
+  ctl.endBrushStroke();
+  assert.notDeepEqual(Array.from(weightAttr.array),before,
+    'GPU skinWeight BufferAttribute must change, not just an intermediate CPU array');
+  assert.ok(weightAttr.version>0,'actual GPU upload attribute must be marked needsUpdate');
+  assert.ok(indexAttr.version>0,'skin indices must also be flagged for upload');
+  assert.ok(vertexXOffset()>beforeX,
+    'pose deformation result should respond to painted weights');
+  ctl.undoBrushStroke('pelvis');
+  assert.deepEqual(Array.from(weightAttr.array),before,'Undo must restore GPU buffer values');
+  ctl.dispose();
+});
+
+test('Reduce on zero weight is a true no-op with no phantom Undo entry',()=>{
+  const {mesh}=rig(),settings=config();
+  mesh.name='Body';mesh.matrixWorld=new Matrix4();
+  const ids=new Uint16Array(16),wts=new Float32Array(16);
+  for(let i=0;i<4;i++){ids[i*4]=0;wts[i*4]=1;}
+  mesh.geometry.setAttribute('skinIndex',new Attribute(ids,4));
+  mesh.geometry.setAttribute('skinWeight',new Attribute(wts,4));
+  const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+  ctl.update(settings,'thigh.L','smart-auto');
+  ctl.beginBrushStroke();
+  const n=ctl.paintHit({object:mesh,face:{a:0,b:1,c:2},
+    point:{toArray:()=>[.05,0,0]}},'thigh.L',.5,1,true);
+  assert.equal(n,0);
+  assert.equal(ctl.endBrushStroke(),false);
+  assert.equal(ctl.paintedCount(),0);
+  assert.equal(ctl.undoBrushStroke('thigh.L'),false);
   ctl.dispose();
 });
