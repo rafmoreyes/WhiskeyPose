@@ -8,6 +8,7 @@ import { buildSkeletonTemplate } from './skeleton_solver.js';
 import { fitEnvelopes, validateEnvelopeDraft } from './envelope_math.js';
 import { createEnvelopeTool } from './envelope_tool.js';
 import { createLiveSkin } from './live_skin.js';
+import { createDeformationTest, DEFORMATION_SECTIONS } from './deformation_test.js';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -17,7 +18,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.1 <span class="version-note">LIVE SKIN</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.1a <span class="version-note">DEFORMATION TEST</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -81,6 +82,8 @@ const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
 const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const deformationTest=createDeformationTest(THREE);
+let deformationLastFrame=0;
 let notifyTimer;
 
 function notify(message, type = 'info') {
@@ -143,8 +146,15 @@ function resizeViewport() {
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
 }
 new ResizeObserver(resizeViewport).observe(viewport);
-function animate() {
+function animate(now=0) {
+  const elapsed=deformationLastFrame?Math.max(0,(now-deformationLastFrame)/1000):0;
+  deformationLastFrame=now;
   requestAnimationFrame(animate);controls.update();
+  if(deformationTest.status().playing){
+    const name=deformationTest.tick(elapsed);
+    const label=$('#deformation-current');
+    if(label && label.textContent!==name)label.textContent=name;
+  }
   if (state.liveSkin && state.model && (state.activeTab === 'skin' || state.activeTab === 'pose')) {
     state.model.updateWorldMatrix(true,true); envelopeTool.tick();
   }
@@ -173,6 +183,7 @@ function frameModel() {
 }
 
 function destroyModel() {
+  deformationTest.attach([]);
   state.liveSkin?.dispose();state.liveSkin=null;state.liveError=null;
   markerTool.setModel(null);
   envelopeTool.clear();
@@ -223,6 +234,7 @@ async function importFBX(file, options = {}) {
     if (!options.generated && !options.keepEnvelope) { state.envelopeConfig = null; state.envelopeDefaults = null; state.envelopeBones = null; state.envelopeDirty = false; state.savedRigMarkers = null; }
     state.file = file; state.sourceFile = options.generated ? (state.sourceFile || file) : file; state.riggedFile = options.generated ? file : null; state.rigReport = options.report || null; state.model = fbx; state.meshes = meshes; state.skinnedMeshes = skinned; state.bones = bones; state.stats = stats;
     for (const bone of bones) state.rest.set(bone, {quaternion: bone.quaternion.clone(), position: bone.position.clone(), scale: bone.scale.clone()});
+    deformationTest.attach(bones);
     state.skeletonHelper = new THREE.SkeletonHelper(fbx);
     state.skeletonHelper.visible = state.bonesVisible && bones.length > 0;
     scene.add(fbx); scene.add(state.skeletonHelper);
@@ -334,6 +346,44 @@ function boneForEnvelope(name) {
   const key=String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'');
   return state.bones.find(b=>String(b.name).toLowerCase().replace(/[^a-z0-9]/g,'')===key)||null;
 }
+function deformationPanel() {
+  if(!state.bones.length)return '';
+  const d=deformationTest.status();
+  const playLabel=d.playing?(d.paused?'▶ Resume':'Ⅱ Pause'):'▶ Play';
+  const options=DEFORMATION_SECTIONS.map(section=>`<option value='${section.id}' ${d.focus===section.id?'selected':''}>${escapeHtml(section.label)}</option>`).join('');
+  return `<section class='deformation-test'>${sectionTitle('Deformation Test','AUTO DIAGNOSTIC')}
+    <p class='skin-hint'>Automatic joint scan. No keyframes, Blender process, or changes to saved skin/pose.</p>
+    <label class='field-label' for='deformation-focus'>TEST SECTION</label>
+    <select id='deformation-focus' class='bone-select'>${options}</select>
+    <div class='deformation-buttons'><button class='full-button gold' id='deformation-play' ${d.supportedCount?'':'disabled'}>${playLabel}</button>
+    <button class='full-button' id='deformation-stop' ${d.playing?'':'disabled'}>■ Stop / Restore</button></div>
+    <label class='field-label' for='deformation-speed'>SPEED <strong id='deformation-speed-readout'>${d.speed.toFixed(2)}×</strong></label>
+    <input class='envelope-slider' id='deformation-speed' type='range' min='0.25' max='2' step='0.25' value='${d.speed}' />
+    <label class='field-label' for='deformation-intensity'>AMPLITUDE <strong id='deformation-intensity-readout'>${Math.round(d.intensity*100)}%</strong></label>
+    <input class='envelope-slider' id='deformation-intensity' type='range' min='25' max='150' step='5' value='${Math.round(d.intensity*100)}' />
+    <div class='deformation-current'>Testing: <strong id='deformation-current'>${escapeHtml(d.stageLabel)}</strong></div>
+    <p class='skin-hint'>Stop restores the exact pose you had before Play. Pausing holds the frame. Unrecognized bones are skipped.</p></section>`;
+}
+function bindDeformationPanel() {
+  if(!$('#deformation-play'))return;
+  $('#deformation-play').addEventListener('click',()=>{
+    const d=deformationTest.status();
+    if(!d.playing){if(!deformationTest.play())notify('No supported deform bones found for the diagnostic test.','error');}
+    else if(d.paused)deformationTest.play();
+    else deformationTest.pause();
+    renderPanel();
+  });
+  $('#deformation-stop').addEventListener('click',()=>{deformationTest.stop();renderPanel();});
+  $('#deformation-focus').addEventListener('change',event=>{deformationTest.setFocus(event.target.value);renderPanel();});
+  $('#deformation-speed').addEventListener('input',event=>{
+    deformationTest.setSpeed(Number(event.target.value));
+    $('#deformation-speed-readout').textContent=deformationTest.status().speed.toFixed(2)+'×';
+  });
+  $('#deformation-intensity').addEventListener('input',event=>{
+    deformationTest.setIntensity(Number(event.target.value)/100);
+    $('#deformation-intensity-readout').textContent=Math.round(deformationTest.status().intensity*100)+'%';
+  });
+}
 function skinPoseControls() {
   const bone=boneForEnvelope(state.selectedEnvelope);
   if(!bone)return information('No matching pose bone was found for this envelope.');
@@ -341,7 +391,7 @@ function skinPoseControls() {
   return `<div class="live-pose-section">${sectionTitle('Pose Test', 'LIVE DEFORMATION')}
     <p class="skin-hint">Bend ${escapeHtml(bone.name)} while tuning its envelope. The pose stays in place.</p>
     ${['x','y','z'].map(axis=>`<div class="rotation-row"><label class="axis ${axis}">${axis.toUpperCase()}</label>
-      <input data-live-pose-axis="${axis}" type="range" min="-180" max="180" step="1" value="${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}" />
+      <input data-live-pose-axis="${axis}" type="range" min="-180" max="180" step="1" value="${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}" ${deformationTest.status().playing?'disabled':''} />
       <output data-live-pose-readout="${axis}">${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}°</output></div>`).join('')}
     <div class="panel-row"><button class="half-button" id="skin-reset-selected-pose">Reset bone</button><button class="half-button" id="skin-reset-all-pose">Reset pose</button></div>
   </div>`;
@@ -445,7 +495,7 @@ function renderPanel() {
       ${information(state.skinMethod==='envelope' ? 'The selected capsule follows its bone while posing. Radius and Influence Strength update the mesh weights immediately; Blender is only needed to save the FBX.' : 'Legacy Blender Auto Weights uses the same approved skeleton but ignores envelope settings. Select Envelope Skin to apply your radius and ownership choices.')}
       ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
       ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Generate Rig + Envelope Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Save Edited Skin FBX (no pose reset)'}</button>` : ''}
-      ${state.liveSkin ? `<div class="live-status">● LIVE SKIN · Editing in memory, no FBX reload</div><div class="live-summary">Outside-envelope vertices: <strong id="live-outside-count">${state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'}</strong></div>${skinPoseControls()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
+      ${state.liveSkin ? `<div class="live-status">● LIVE SKIN · Editing in memory, no FBX reload</div><div class="live-summary">Outside-envelope vertices: <strong id="live-outside-count">${state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
       ` : information(s?.bones ? 'This FBX was imported with a rig. Envelope editing currently applies to skeletons built from WhiskeyPose markers.' : 'Go to Rig, confirm the 16 markers and approve the skeleton. The Skin tab will then generate editable envelopes automatically.')}
       ${report.length && !state.liveSkin ? `<div class="metrics">${metric('Envelope skin',state.rigReport.skinMode==='envelope'?'Used':'Not used')}${metric('Outside-envelope vertices',total?`${formatCount(outside)} / ${formatCount(total)} (${(outside/total*100).toFixed(1)}%)`:'—')}</div>` : ''}
       ${state.skinnedMeshes.length ? `<div class="mesh-list">${state.skinnedMeshes.map(m=>`<div class="mesh-row"><span class="mesh-dot"></span>${escapeHtml(m.name||'Unnamed mesh')}<small>${m.skeleton?.bones?.length||0} bones</small></div>`).join('')}</div>` : ''}
@@ -478,12 +528,12 @@ function renderPanel() {
       });
       $('#envelope-generate')?.addEventListener('click',()=>generateRig());
       $('#envelope-rebuild')?.addEventListener('click',()=>generateRig({rebuild:true}));
-      if(state.liveSkin){bindSkinPoseControls(panel);$('#save-pose-skin')?.addEventListener('click',downloadPose);}
+      if(state.liveSkin){bindSkinPoseControls(panel);bindDeformationPanel();$('#save-pose-skin')?.addEventListener('click',downloadPose);}
     } else envelopeTool.clear();
   } else {
     const bone = state.selectedBone;
     panel.innerHTML = `${sectionTitle('Interactive pose', 'RIGGED FBX ONLY')}
-      ${state.bones.length ? `<label class="field-label" for="bone-select">SELECT BONE</label><select id="bone-select" class="bone-select">${state.bones.map((b,i) => `<option value="${i}" ${bone===b ? 'selected' : ''}>${escapeHtml(b.name || `Bone ${i+1}`)}</option>`).join('')}</select><div id="rotation-controls"></div><div class="panel-row"><button class="half-button" id="reset-bone">Reset bone</button><button class="half-button" id="reset-pose">Reset all</button></div><button class="full-button gold" id="save-pose">⇩ &nbsp; Save pose JSON</button>` : information(state.file ? 'This FBX has no skeleton. You can inspect the model, but posing requires rig generation first.' : 'Import an already-rigged FBX to test simple bone rotations.')}
+      ${state.bones.length ? `<label class="field-label" for="bone-select">SELECT BONE</label><select id="bone-select" class="bone-select">${state.bones.map((b,i) => `<option value="${i}" ${bone===b ? 'selected' : ''}>${escapeHtml(b.name || `Bone ${i+1}`)}</option>`).join('')}</select><div id="rotation-controls"></div><div class="panel-row"><button class="half-button" id="reset-bone">Reset bone</button><button class="half-button" id="reset-pose">Reset all</button></div><button class="full-button gold" id="save-pose">⇩ &nbsp; Save pose JSON</button>${deformationPanel()}` : information(state.file ? 'This FBX has no skeleton. You can inspect the model, but posing requires rig generation first.' : 'Import an already-rigged FBX to test simple bone rotations.')}
       ${information('Rotation controls are a diagnostic tool, not a production IK solver. Image-driven posing and IK are scheduled for later Alpha versions.')}`;
     if (state.bones.length) {
       $('#bone-select').addEventListener('change', (event) => {state.selectedBone = state.bones[Number(event.target.value)]; renderRotationControls();});
@@ -491,6 +541,7 @@ function renderPanel() {
       $('#reset-pose').addEventListener('click', () => {for (const b of state.bones) resetBone(b); renderRotationControls(); notify('Pose restored to the imported state.', 'success');});
       $('#save-pose').addEventListener('click', downloadPose);
       renderRotationControls();
+      bindDeformationPanel();
     }
   }
 }
@@ -499,11 +550,12 @@ function renderRotationControls() {
   const bone = state.selectedBone;
   if (!container || !bone) return;
   const values = ['x','y','z'].map((axis) => Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis])));
-  container.innerHTML = `<div class="rotation-title">LOCAL ROTATION <small>DEGREES</small></div>${['x','y','z'].map((axis,i) => `<div class="rotation-row"><label class="axis ${axis}">${axis.toUpperCase()}</label><input data-axis="${axis}" type="range" min="-180" max="180" value="${values[i]}" step="1"/><output id="angle-${axis}">${values[i]}°</output></div>`).join('')}`;
+  container.innerHTML = `<div class="rotation-title">LOCAL ROTATION <small>DEGREES</small></div>${['x','y','z'].map((axis,i) => `<div class="rotation-row"><label class="axis ${axis}">${axis.toUpperCase()}</label><input data-axis="${axis}" type="range" min="-180" max="180" value="${values[i]}" step="1" ${deformationTest.status().playing?'disabled':''}/><output id="angle-${axis}">${values[i]}°</output></div>`).join('')}`;
   container.querySelectorAll('[data-axis]').forEach((input) => input.addEventListener('input', () => {const axis = input.dataset.axis; bone.rotation[axis] = THREE.MathUtils.degToRad(Number(input.value)); $(`#angle-${axis}`).textContent = `${input.value}°`; }));
 }
 function resetBone(bone) {
   if (!bone) return;
+  if(deformationTest.status().playing)deformationTest.stop();
   const rest = state.rest.get(bone);
   if (!rest) return;
   bone.quaternion.copy(rest.quaternion); bone.position.copy(rest.position); bone.scale.copy(rest.scale);
@@ -540,6 +592,7 @@ async function loadMarkers(file) {
 }
 function downloadPose() {
   if (!state.bones.length) return;
+  if(deformationTest.status().playing)deformationTest.stop();
   const filename = (state.file?.name || 'character').replace(/\.fbx$/i, '') + '_pose.json';
   saveBlob(new Blob([JSON.stringify(posePayload(), null, 2)], {type:'application/json'}), filename);
   notify(`Saved ${filename}.`, 'success');

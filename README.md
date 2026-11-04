@@ -154,3 +154,16 @@ Run **`Iniciar-WhiskeyPose.bat`** from a Git clone of this repository to start e
 **Requirements:** Git, Node.js, Python, Blender, Microsoft Edge and Windows 11 `curl.exe`. Close previously running Worker/Vite terminals before launching after an update; already-responding services are reused rather than restarted. No new packages are required.
 
 The standalone `start-whiskeypose.cmd` still works; the launcher uses `--no-browser` to avoid opening a duplicate browser tab.
+
+## Alpha 0.3.1a — Deformation Test
+
+An automatic, reversible deformation diagnostic is available inside **Pose** and **Skin** after loading a rigged FBX.
+
+- Choose **Full scan** for sequential head, neck, shoulders/arms, elbows/wrists, spine/chest, thighs, knees and feet. Choose one section to isolate a joint group.
+- **Play / Pause / Resume / Stop & Restore**; Speed 0.25–2× and Amplitude 25–150%. Predefined conservative angles; no manual animation authoring required.
+- The scanner captures the **current** artist pose when Play begins and restores it exactly on Stop. Pausing freezes the current frame. It uses the imported bones directly in the existing Three.js scene and does **not** modify skin weights, FBX files, or pose JSON.
+- In **Skin**, envelopes and Live Skin remain editable while the diagnostic plays. Bone rotation sliders are temporarily disabled to avoid competing motion; press Stop to edit them manually.
+- Rotations are calculated in the Y-up character/world reference and translated into the bone parent's local space, avoiding assumptions about the FBX bone roll. They remain **diagnostic**, not anatomically constrained, and do not perform IK, foot locking, collision avoidance or animation export. Unsupported bone names are skipped.
+- **No new dependencies or backend services.** Blender is only needed for the existing rig/skin generation or FBX saving operations.
+
+Test: run `node --test tests/deformation_test.test.mjs` and inspect the animation on a real rigged character in the browser. This build has not yet been visually verified on a real FBX / Windows setup.
