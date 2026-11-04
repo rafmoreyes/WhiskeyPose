@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { distanceSegmentSquared, weightsForDistances } from './envelope_math.js';
-import { headNeckOwnership, headOwnedComponents } from './smart_regions.js';
+import { headNeckOwnership, headOwnedComponents, meshRegionOwnerships } from './smart_regions.js';
 
 /** Map FBXLoader's bone names (e.g. forearmR) to WhiskeyPose's forearm.R. */
 const keyOf = name => String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -87,25 +87,30 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     if(index){for(let i=0;i+2<index.count;i+=3)faces.push([index.array[i],index.array[i+1],index.array[i+2]]);}
     else {for(let i=0;i+2<vertices.count;i+=3)faces.push([i,i+1,i+2]);}
     const headOwned=headOwnedComponents(restPoints,faces,segments,height);
-    const ownership=restPoints.map((xyz,i)=>headOwned[i]
+    const ownershipHeadOnly=restPoints.map((xyz,i)=>headOwned[i]
       ? {zone:'detached-head',weights:[['head',1]]}
       : headNeckOwnership(xyz,segments,height));
-    contexts.push({mesh,geometry,vertices,segments,distances,ownership,
+    const ownershipSmart=meshRegionOwnerships(restPoints,faces,segments,height);
+    contexts.push({mesh,geometry,vertices,segments,distances,ownershipHeadOnly,ownershipSmart,
       byName:new Map(segments.map(s=>[s.name,s.index])),
       originalMaterial:mesh.material, originalColors:geometry.getAttribute('color'), heatmapMaterial:null,
       skinIndex:null,skinWeight:null,weightForSelected:null});
   }
   const primary=contexts[0].segments;
-  let showHeatmap=false, selected=names[0];
+  let showHeatmap=false, showRegions=false, selected=names[0];
+  let currentRegionMode='smart';
   function update(configNow,selectedName=selected){
     selected=selectedName;
-    let outside=0,total=0;
+    currentRegionMode=configNow.regionMode??'smart';
+    let outside=0,total=0;const regions={};
     for(const ctx of contexts){
       const vertexCount=ctx.vertices.count,nb=names.length;
       const indices=new Uint16Array(vertexCount*4),weights=new Float32Array(vertexCount*4);
       const selectedWeights=new Float32Array(vertexCount);
       for(let i=0;i<vertexCount;i++){
-        const answer=weightsForDistances(names,ctx.distances.subarray(i*nb,(i+1)*nb),configNow,height,4,ctx.ownership[i]);
+        const ownership=(currentRegionMode==='smart'?ctx.ownershipSmart:ctx.ownershipHeadOnly)[i];
+        const zone=ownership?.zone??'unclassified';regions[zone]=(regions[zone]??0)+1;
+        const answer=weightsForDistances(names,ctx.distances.subarray(i*nb,(i+1)*nb),configNow,height,4,ownership);
         if(answer.fallback)outside++;
         for(let j=0;j<answer.weights.length;j++){
           const [name,value]=answer.weights[j];
@@ -118,19 +123,33 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
       ctx.skinIndex=indices;ctx.skinWeight=weights;ctx.weightForSelected=selectedWeights;
       ctx.geometry.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(indices,4));
       ctx.geometry.setAttribute('skinWeight',new THREE.Float32BufferAttribute(weights,4));
-      if(showHeatmap)colorize(ctx);
+      if(showHeatmap||showRegions)colorize(ctx);
     }
-    return {outside,total};
+    return {outside,total,regions,regionMode:currentRegionMode};
+  }
+  function regionColor(zone){
+    if(zone.startsWith('head')||zone==='detached-head')return [.94,.72,.40];
+    if(zone.startsWith('neck'))return [.78,.57,.80];
+    if(zone.startsWith('arm.L'))return [.33,.80,.85];
+    if(zone.startsWith('arm.R'))return [.25,.56,.84];
+    if(zone.startsWith('leg.L'))return [.64,.84,.41];
+    if(zone.startsWith('leg.R'))return [.35,.68,.37];
+    if(zone==='torso')return [.89,.52,.48];
+    return [.50,.50,.52];
   }
   function colorize(ctx) {
     const colors=new Float32Array(ctx.vertices.count*3);
     for(let i=0;i<ctx.vertices.count;i++){
-      const v=ctx.weightForSelected?.[i]||0;
-      // dark blue (0) -> cyan (0.5) -> warm gold (1)
-      const t=Math.min(1,Math.max(0,v));
-      colors[i*3]=.09+.85*Math.max(0,(t-.36)/.64);
-      colors[i*3+1]=.22+.57*Math.min(1,t*2);
-      colors[i*3+2]=.28+.5*(1-t);
+      if(showRegions){
+        const zone=(currentRegionMode==='smart'?ctx.ownershipSmart:ctx.ownershipHeadOnly)[i]?.zone??'unclassified';
+        colors.set(regionColor(zone),i*3);
+      }else{
+        const v=ctx.weightForSelected?.[i]||0;
+        const t=Math.min(1,Math.max(0,v));
+        colors[i*3]=.09+.85*Math.max(0,(t-.36)/.64);
+        colors[i*3+1]=.22+.57*Math.min(1,t*2);
+        colors[i*3+2]=.28+.5*(1-t);
+      }
     }
     ctx.geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
     if(!ctx.heatmapMaterial){
@@ -141,13 +160,24 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
   }
   function toggleHeatmap(value){
     showHeatmap=Boolean(value);
+    if(showHeatmap)showRegions=false;
     for(const ctx of contexts){
-      if(showHeatmap){colorize(ctx);}
+      if(showHeatmap||showRegions){colorize(ctx);}
       else {
         ctx.mesh.material=ctx.originalMaterial;
         if(ctx.originalColors)ctx.geometry.setAttribute('color',ctx.originalColors);
         else ctx.geometry.deleteAttribute('color');
       }
+    }
+  }
+  function toggleRegions(value){
+    showRegions=Boolean(value);
+    if(showRegions)showHeatmap=false;
+    for(const ctx of contexts){
+      if(showRegions||showHeatmap)colorize(ctx);
+      else {ctx.mesh.material=ctx.originalMaterial;
+        if(ctx.originalColors)ctx.geometry.setAttribute('color',ctx.originalColors);
+        else ctx.geometry.deleteAttribute('color');}
     }
   }
   function poseSegments(){
@@ -160,8 +190,8 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     });
   }
   function dispose(){
-    toggleHeatmap(false);
+    toggleHeatmap(false);toggleRegions(false);
     for(const m of ownedMaterials)m.dispose();
   }
-  return {height, update,toggleHeatmap,poseSegments,dispose, get hasHeatmap(){return showHeatmap;}};
+  return {height, update,toggleHeatmap,toggleRegions,poseSegments,dispose, get hasHeatmap(){return showHeatmap;}, get hasRegionMap(){return showRegions;}};
 }

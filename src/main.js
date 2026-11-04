@@ -18,7 +18,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.2 <span class="version-note">SMART HEAD REGIONS</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.3 <span class="version-note">SMART REGIONS REGIONS</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -81,7 +81,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 const deformationTest=createDeformationTest(THREE);
 let deformationLastFrame=0;
 let notifyTimer;
@@ -254,6 +254,7 @@ async function importFBX(file, options = {}) {
         state.liveSkin=createLiveSkin(skinned,state.envelopeBones,state.envelopeConfig);
         state.envelopeHeight=state.liveSkin.height;
         state.liveSkin.toggleHeatmap(state.showSkinHeatmap && state.activeTab==='skin');
+        state.liveSkin.toggleRegions(state.showSkinRegions && state.activeTab==='skin');
         state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope);
       }catch(error){state.liveError=error.message;console.warn('Live Skin initialization failed:',error);}
     }
@@ -282,6 +283,7 @@ function setTab(tab) {
   markerTool.setActive(Boolean(editingMarkers));
   envelopeTool.setActive(tab === 'skin' || (tab === 'pose' && Boolean(state.liveSkin)));
   state.liveSkin?.toggleHeatmap(state.showSkinHeatmap && tab==='skin');
+  state.liveSkin?.toggleRegions(state.showSkinRegions && tab==='skin');
   $('#marker-views').classList.toggle('hidden', !editingMarkers);
   $('#marker-tip').classList.toggle('hidden', !editingMarkers);
   $('#active-mode').textContent = tab.toUpperCase();
@@ -490,9 +492,12 @@ function renderPanel() {
       <label class="field-label" for="envelope-mode">INFLUENCE BEHAVIOR</label>
       <select id="envelope-mode" class="bone-select"><option value="smooth" ${selected.mode==='smooth'?'selected':''}>Smooth — blend with overlapping bones</option><option value="rigid" ${selected.mode==='rigid'?'selected':''}>Rigid — follow this bone only</option></select>
       <label class="envelope-show"><input type="checkbox" id="envelope-show-all" ${state.showAllEnvelopes?'checked':''}/> Show all envelopes</label>
+      <label class="envelope-show"><input type="checkbox" id="ssr-enable" ${state.envelopeConfig.regionMode!=='head-only'?'checked':''}/> <strong>Smart Skin Regions (SSR)</strong></label>
+      <label class="envelope-show"><input type="checkbox" id="ssr-region-map" ${state.showSkinRegions?'checked':''}/> Show anatomical regions</label>
       <label class="envelope-show"><input type="checkbox" id="envelope-heatmap" ${state.showSkinHeatmap?'checked':''}/> Show influence heatmap</label>
+      ${state.liveDiagnostics?.regions ? '<div class="ssr-metrics">'+Object.entries(state.liveDiagnostics.regions).map(([zone,n])=>zone+': '+formatCount(n)).join(' · ')+'</div>' : ''}
       <button class="full-button" id="envelope-reset">↻ Reset selected envelope</button>
-      ${information(state.skinMethod==='envelope' ? 'Smart Head Region now owns skull/head-linked islands; Head/Neck cannot affect shoulders and chest, even with oversized envelopes. Within protected regions, anatomical ownership overrides radius and strength. Other bones keep editable Live Skin envelopes.' : 'Blender Auto Weights does not use Smart Head Region. Select Envelope Skin to enable the anatomical ownership rules.')}
+      ${information(state.skinMethod==='envelope' ? 'SSR assigns head, neck, trunk, each arm and each leg to their own bone groups before envelope weighting. Tiny detached accessories may use rigid ownership. Turn SSR off to compare the previous head-only protection; this is heuristic, not AI segmentation.' : 'Blender Auto Weights does not use Smart Head Region. Select Envelope Skin to enable the anatomical ownership rules.')}
       ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
       ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Generate Rig + Envelope Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Save Edited Skin FBX (no pose reset)'}</button>` : ''}
       ${state.liveSkin ? `<div class="live-status">● LIVE SKIN · Editing in memory, no FBX reload</div><div class="live-summary">Outside-envelope vertices: <strong id="live-outside-count">${state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
@@ -518,9 +523,21 @@ function renderPanel() {
         $('#envelope-strength-value').textContent=`${Math.round(strength*100)}%`;
       });
       $('#envelope-mode').addEventListener('change',event=>updateEnvelope(state.selectedEnvelope,{mode:event.target.value}));
+      $('#ssr-enable').addEventListener('change',event=>{
+        state.envelopeConfig.regionMode=event.target.checked?'smart':'head-only';
+        state.envelopeDirty=true;scheduleLiveSkinUpdate();renderPanel();
+      });
+      $('#ssr-region-map').addEventListener('change',event=>{
+        state.showSkinRegions=event.target.checked;
+        if(state.showSkinRegions)state.showSkinHeatmap=false;
+        state.liveSkin?.toggleRegions(state.showSkinRegions);
+        const heatmap=$('#envelope-heatmap');if(heatmap)heatmap.checked=state.showSkinHeatmap;
+      });
       $('#envelope-heatmap').addEventListener('change',event=>{
         state.showSkinHeatmap=event.target.checked;
+        if(state.showSkinHeatmap)state.showSkinRegions=false;
         state.liveSkin?.toggleHeatmap(state.showSkinHeatmap);
+        const map=$('#ssr-region-map');if(map)map.checked=state.showSkinRegions;
       });
       $('#envelope-show-all').addEventListener('change',event=>{state.showAllEnvelopes=event.target.checked;refreshEnvelopePreview();});
       $('#envelope-reset').addEventListener('click',()=>{

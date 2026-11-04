@@ -52,7 +52,9 @@ export function validateEnvelopeDraft(data,bones){
       throw Error('Invalid skin envelope '+name);
     copy[name]={radius:row.radius,mode:row.mode,strength};
   }
-  return {format:ENVELOPE_SCHEMA,version:1,envelopes:copy};
+  const regionMode=data.regionMode??'smart';
+  if(!['smart','head-only'].includes(regionMode))throw Error('Invalid Smart Regions mode');
+  return {format:ENVELOPE_SCHEMA,version:1,regionMode,envelopes:copy};
 }
 /** Calculate normalized weights from precomputed *squared* distance-to-bone segments.
  * Used when the artist moves a slider; distances need not be recalculated.
@@ -60,11 +62,12 @@ export function validateEnvelopeDraft(data,bones){
 export function weightsForDistances(names,distances,config,height,limit=4,ownership=null){
   if(ownership?.weights)return {weights:ownership.weights,fallback:false};
   const blocked=new Set(ownership?.blocked||[]);
+  const allowed=ownership?.allowed?new Set(ownership.allowed):null;
   let nearest=Infinity,nearestName=null,nearestEnabled=Infinity,enabledName=null;
   const hits=[],rigid=[];
   for(let i=0;i<names.length;i++){
     const name=names[i],d2=distances[i],setting=config.envelopes[name];
-    if(blocked.has(name))continue;
+    if(blocked.has(name)||(allowed&&!allowed.has(name)))continue;
     if(d2<nearest){nearest=d2;nearestName=name;}
     const strength=setting.strength??1;
     if(strength>0 && d2<nearestEnabled){nearestEnabled=d2;enabledName=name;}

@@ -14,7 +14,7 @@ import bpy
 from rig_math import proximity_weights
 from marker_rig import make_marker_template
 from envelope_skin import validate_envelopes, envelope_weights
-from smart_regions import head_neck_ownership, head_owned_components
+from smart_regions import head_neck_ownership, head_owned_components, mesh_region_ownerships
 
 
 def arguments():
@@ -94,18 +94,23 @@ def assign_proximity(mesh, rig, definitions, height):
         modifier.object = rig
 
 
-def assign_envelopes(mesh, rig, definitions, height, config):
+def assign_envelopes(mesh, rig, definitions, height, config, region_mode='smart', report=False):
     """Generate actual Blender vertex groups from user-controlled bone envelopes."""
     remove_bone_groups(mesh, definitions)
     groups = {b['name']: mesh.vertex_groups.new(name=b['name']) for b in definitions}
     world = mesh.matrix_world.copy()
     rest_points = [tuple(world @ vert.co) for vert in mesh.data.vertices]
     faces = [tuple(poly.vertices) for poly in getattr(mesh.data,'polygons',())]
-    owned = head_owned_components(rest_points,faces,definitions,height)
+    owned = head_owned_components(rest_points,faces,definitions,height) if region_mode=='head-only' else []
+    ownerships = mesh_region_ownerships(rest_points,faces,definitions,height) if region_mode=='smart' else []
+    region_counts = {}
     fallback_count = 0
     for vert,pos in zip(mesh.data.vertices,rest_points):
-        ownership = ({'zone':'detached-head','weights':[('head',1.)]} if owned[vert.index]
-                     else head_neck_ownership(pos,definitions,height))
+        ownership = (ownerships[vert.index] if region_mode=='smart' else
+                     ({'zone':'detached-head','weights':[('head',1.)]} if owned[vert.index]
+                      else head_neck_ownership(pos,definitions,height)))
+        zone = ownership.get('zone','unclassified') if ownership else 'unclassified'
+        region_counts[zone] = region_counts.get(zone,0)+1
         weights, used_fallback = envelope_weights(pos, definitions, config, height, ownership=ownership)
         if used_fallback:
             fallback_count += 1
@@ -117,7 +122,7 @@ def assign_envelopes(mesh, rig, definitions, height, config):
     if not any(m.type == 'ARMATURE' and m.object == rig for m in mesh.modifiers):
         modifier = mesh.modifiers.new('WhiskeyPose Envelope Skin', 'ARMATURE')
         modifier.object = rig
-    return fallback_count
+    return (fallback_count, region_counts) if report else fallback_count
 
 
 def try_bone_heat(mesh, rig, definitions):
@@ -151,14 +156,19 @@ def main():
     if args.method == 'envelope':
         if not args.envelopes:
             raise RuntimeError('Envelope settings are required for envelope skinning')
-        envelope_config = validate_envelopes(json.loads(Path(args.envelopes).read_text(encoding='utf-8')), definitions)
+        envelope_payload = json.loads(Path(args.envelopes).read_text(encoding='utf-8'))
+        region_mode = envelope_payload.get('regionMode','smart')
+        if region_mode not in ('smart','head-only'):
+            raise ValueError('Invalid Smart Regions mode')
+        envelope_config = validate_envelopes(envelope_payload, definitions)
     methods = []
     for mesh in meshes:
         if envelope_config is not None:
-            fallback_count = assign_envelopes(mesh, rig, definitions, dimensions['height'], envelope_config)
+            fallback_count, region_counts = assign_envelopes(mesh, rig, definitions, dimensions['height'], envelope_config, region_mode=region_mode, report=True)
             methods.append({'mesh': mesh.name, 'weights': 'envelopes',
                             'fallbackVertices': fallback_count,
-                            'totalVertices': len(mesh.data.vertices)})
+                            'totalVertices': len(mesh.data.vertices),
+                            'regionMode': region_mode, 'regions': region_counts})
             continue
         success = args.method == 'auto' and try_bone_heat(mesh, rig, definitions)
         if not success:
@@ -178,7 +188,7 @@ def main():
         apply_unit_scale=True,
         mesh_smooth_type='OFF',
     )
-    report = {'version': '0.3.2', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Smart head/neck ownership uses anatomical heuristics, not general semantic segmentation. Long hair joined to body geometry and unusual limb poses still need review.']}
+    report = {'version': '0.3.3', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['SSR 0.3.3 uses heuristic anatomical regions and disconnected islands, not learned segmentation. Long coats, overlapping limbs, connected accessories and asymmetric costumes still need review.']}
     with open(args.report, 'w', encoding='utf-8') as handle:
         json.dump(report, handle)
     print('WhiskeyPose Alpha 0.1 output:', json.dumps(report))

@@ -16,6 +16,8 @@ def validate_envelopes(payload, bones):
     names = {bone['name'] for bone in bones}
     if not isinstance(payload, dict) or payload.get('format') != SCHEMA or payload.get('version') != VERSION:
         raise ValueError('Invalid skin envelope format or version')
+    if payload.get('regionMode','smart') not in ('smart','head-only'):
+        raise ValueError('Invalid Smart Regions mode')
     entries = payload.get('envelopes')
     if not isinstance(entries, dict) or set(entries) != names:
         raise ValueError('Skin envelopes must contain exactly one entry for every deform bone')
@@ -58,13 +60,14 @@ def envelope_weights(point, bones, envelopes, height, limit=4, ownership=None):
     if ownership and 'weights' in ownership:
         return ownership['weights'], False
     blocked = set(ownership.get('blocked', ())) if ownership else set()
+    allowed = set(ownership['allowed']) if ownership and 'allowed' in ownership else None
     scores = []
     nearest = (float('inf'), None)
     nearest_enabled = (float('inf'), None)
     rigid = []
     for bone in bones:
         name = bone['name']
-        if name in blocked:
+        if name in blocked or (allowed is not None and name not in allowed):
             continue
         d2 = distance_segment_squared(point, bone['head'], bone['tail'])
         if d2 < nearest[0]:

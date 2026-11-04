@@ -177,3 +177,11 @@ The Envelope Skin engine first assigns head, head-neck and neck-chest ownership,
 **Important:** After updating, reimport the **original unrigged FBX**, place and approve 16 markers and generate a fresh rig to receive the new Head pivot. Existing Alpha 0.3.1 rigs are not silently migrated. Use Deformation Test sections Head and Neck separately, then inspect shoulder weights and exported FBX.
 
 This is an anatomical heuristic, not fully automatic semantic parsing; elaborate fused hair, complex shoulder cloth and nonstandard rest poses may still require improvement in Alpha 0.3.3. Read [docs/ALPHA_0_3_2_SMART_HEAD_TESTS.md](docs/ALPHA_0_3_2_SMART_HEAD_TESTS.md).
+
+## Alpha 0.3.3 — Smart Skin Regions (SSR)
+
+SSR is a deterministic, local region-ownership pass before Envelope Skin. It groups geometry into Head/Neck, Torso, Arm L/R and Leg L/R using the approved skeleton and disconnected topology. Envelopes may only weight bones belonging to the assigned anatomical chain, with limited shoulder/hip transition sharing. Small, confidently classified detached pieces can follow one bone rigidly. No new runtime dependencies or AI service were added.
+
+**Skin UI:** SSR On/Off (head-only 0.3.2 fallback), Show anatomical regions (vertex-colored group map), existing influence heatmap, envelopes, pose controls, Deformation Test and Save Edited Skin FBX. SSR defaults to On, including for older envelope settings, and the same region mode is included in the payload sent to Blender.
+
+**Limitations:** anatomical heuristics are not learned segmentation. Large costume pieces crossing regions, connected hair, overlapping limbs, costumes with holes, accessories welded to body meshes, and complex coats/capes may still be classified incorrectly. Validate with the Region Map and Blender FBX export. See docs/ALPHA_0_3_3_SSR_TESTS.md.

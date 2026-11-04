@@ -84,3 +84,6 @@
 .deformation-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .deformation-buttons .full-button{min-width:0;font-size:10px;padding:11px 5px}
 .deformation-current{border-radius:6px;padding:9px 10px;background:#1b2223;color:#b9d4c8;font-size:10px}
+
+/* Alpha 0.3.3 SSR diagnostic region counts */
+.ssr-metrics{font-size:10px;line-height:1.7;color:#b5d1c6;background:#1b2223;border-radius:8px;border:1px solid #374443;padding:9px;margin:8px 0;overflow-wrap:anywhere}
