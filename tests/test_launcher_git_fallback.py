@@ -11,7 +11,7 @@ class GitFallbackChecks(unittest.TestCase):
         self.assertIn("ContinueWithLocalBuild ('Git pull falhou: '+$detail)",SCRIPT)
         self.assertIn("try { StartServices } catch { Fail $_.Exception.Message }",SCRIPT)
     def test_never_discard_git_changes(self):
-        self.assertIn("@('pull','--ff-only')",SCRIPT)
+        self.assertIn("$info.Arguments='pull --ff-only'",SCRIPT)
         self.assertNotRegex(SCRIPT,r'git\s+(?:reset|clean|checkout|stash)\b')
         self.assertNotIn('git pull --force',SCRIPT)
     def test_logs_are_visible_and_status_is_honest(self):

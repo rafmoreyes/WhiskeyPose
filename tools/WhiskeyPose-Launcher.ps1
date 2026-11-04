@@ -8,6 +8,8 @@ $script:Logs=Join-Path $env:LOCALAPPDATA 'WhiskeyPose\Logs'
 [IO.Directory]::CreateDirectory($script:Logs)|Out-Null
 $script:Phase='idle'
 $script:Job=$null
+$script:GitStdoutTask=$null
+$script:GitStderrTask=$null
 $script:Worker=$null
 $script:Vite=$null
 $script:Reused=$false
@@ -86,6 +88,45 @@ function ContinueWithLocalBuild([string]$reason) {
   $script:Phase='starting'
   Status 'Git não atualizou · iniciando versão local' 'warn'
   try { StartServices } catch { Fail $_.Exception.Message }
+}
+function Start-GitPull([string]$git) {
+  # Use a real System.Diagnostics.Process instead of Start-Process -PassThru.
+  # Some Windows PowerShell hosts return a null ExitCode despite a successful Git run.
+  $info=New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName=$git
+  $info.Arguments='pull --ff-only'
+  $info.WorkingDirectory=$script:Root
+  $info.UseShellExecute=$false
+  $info.CreateNoWindow=$true
+  $info.RedirectStandardOutput=$true
+  $info.RedirectStandardError=$true
+  $process=New-Object System.Diagnostics.Process
+  $process.StartInfo=$info
+  if(-not $process.Start()){throw 'Não foi possível iniciar git.exe'}
+  $script:Job=$process
+  # Read both streams while Git runs so neither pipe can fill and block it.
+  $script:GitStdoutTask=$process.StandardOutput.ReadToEndAsync()
+  $script:GitStderrTask=$process.StandardError.ReadToEndAsync()
+  Log ('Git started (PID '+$process.Id+'); waiting for explicit exit code.')
+}
+function Complete-GitPull {
+  if(-not $script:Job -or -not $script:Job.HasExited){throw 'Git ainda está executando'}
+  $script:Job.WaitForExit()
+  $stdout=[string]$script:GitStdoutTask.GetAwaiter().GetResult()
+  $stderr=[string]$script:GitStderrTask.GetAwaiter().GetResult()
+  [IO.File]::WriteAllText((Join-Path $script:Logs 'git-pull.out.log'),$stdout)
+  [IO.File]::WriteAllText((Join-Path $script:Logs 'git-pull.err.log'),$stderr)
+  $code=[int]$script:Job.ExitCode
+  Log ('Git completed with explicit exit code '+$code+'.')
+  if($stdout.Trim()){
+    $last=@($stdout -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 3)
+    Log ('Git stdout: '+($last -join ' | '))
+  }
+  if($stderr.Trim()){
+    $last=@($stderr -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 3)
+    Log ('Git stderr: '+($last -join ' | '))
+  }
+  return $code
 }
 function Fail([string]$message){
   $script:Phase='failed'
@@ -167,7 +208,7 @@ function StartAll(){
   $script:Phase='updating'
   Status 'Atualizando (git pull --ff-only)…'
   Log 'Updating from main with git pull --ff-only.'
-  try{$script:Job=Hidden $git @('pull','--ff-only') 'git-pull'}
+  try{Start-GitPull $git}
   catch{Fail $_.Exception.Message}
 }
 function StopServices(){
@@ -184,6 +225,8 @@ function StopServices(){
     try{if($script:Job -and -not $script:Job.HasExited){$script:Job.Kill()}}catch{}
   }
   $script:Job=$null
+  $script:GitStdoutTask=$null
+  $script:GitStderrTask=$null
   $script:Phase='idle'
   Status 'Serviços deste launcher encerrados'
   Log 'External services remain untouched.'
@@ -193,9 +236,14 @@ function Poll(){
   switch($script:Phase){
     'updating'{
       if($script:Job -and $script:Job.HasExited){
-        if($script:Job.ExitCode -ne 0){
+        $exitCode=$null
+        try {$exitCode=Complete-GitPull} catch {
+          ContinueWithLocalBuild ('Não foi possível ler resultado do Git: '+$_.Exception.Message)
+          return
+        }
+        if($exitCode -ne 0){
           $detail=RecentProcessError 'git-pull'
-          Log ('git pull --ff-only retornou '+$script:Job.ExitCode+': '+$detail)
+          Log ('git pull --ff-only retornou '+$exitCode+': '+$detail)
           ContinueWithLocalBuild ('Git pull falhou: '+$detail)
           return
         }
