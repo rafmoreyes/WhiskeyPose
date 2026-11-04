@@ -23,13 +23,12 @@ app.innerHTML = `
       <div class="version"><span class="live-dot"></span> ALPHA 0.3.7 <span class="version-note">CONTACT REPAIR PILOT</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
-        <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
-        <button class="step" data-tab="rig"><span class="step-number">02</span><span><strong>Rig</strong><small>Place joint markers</small></span><span class="step-arrow">›</span></button>
-        <button class="step" data-tab="skin"><span class="step-number">03</span><span><strong>Skin</strong><small>Auto weights inspector</small></span><span class="step-arrow">›</span></button>
-        <button class="step" data-tab="pose"><span class="step-number">04</span><span><strong>Pose</strong><small>Bone rotations</small></span><span class="step-arrow">›</span></button>
+        <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong></span><span class="step-arrow">›</span></button>
+        <button class="step" data-tab="rig"><span class="step-number">02</span><span><strong>Rig</strong></span><span class="step-arrow">›</span></button>
+        <button class="step" data-tab="skin"><span class="step-number">03</span><span><strong>Skin</strong></span><span class="step-arrow">›</span></button>
+        <button class="step" data-tab="pose"><span class="step-number">04</span><span><strong>Pose</strong></span><span class="step-arrow">›</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="side-note"><span class="note-spark">✳</span><div><strong>Built for artists.</strong><p>FBX-first workflow. Experimental T/A-pose rig and skin generation.</p></div></div>
         <a class="repo-link" href="https://github.com/rafmoreyes/WhiskeyPose" target="_blank" rel="noopener noreferrer">↗ &nbsp; Project repository</a>
       </div>
     </aside>
@@ -42,14 +41,14 @@ app.innerHTML = `
         <div class="viewport" id="viewport"></div>
         <div class="marker-view-tools hidden" id="marker-views"><span>MARKER VIEW</span><button data-marker-view="front">Front</button><button data-marker-view="side">Side</button><button data-marker-view="perspective">3/4</button></div>
         <div class="marker-tip hidden" id="marker-tip">Select a marker, then drag it or click the mesh. Use Side to adjust depth.</div>
-        <div class="viewport-toolbar"><div class="tool-group"><span class="view-chip">PERSPECTIVE</span><button id="frame-view" title="Frame model (F)">⌗ Frame</button><button id="toggle-grid" class="toggled">▦ Grid</button><button id="toggle-wire">◇ Wire</button><button id="toggle-skeleton">♧ Bones</button></div><div class="tool-group"><span id="camera-info" class="camera-label">Orbit / Pan / Zoom</span></div></div>
+        <div class="viewport-toolbar"><div class="tool-group"><span class="view-chip">PERSPECTIVE</span><button id="frame-view">⌗ Frame</button><button id="toggle-grid" class="toggled">▦ Grid</button><button id="toggle-wire">◇ Wire</button><button id="toggle-skeleton">♧ Bones</button></div><div class="tool-group"><span id="camera-info" class="camera-label">Orbit / Pan / Zoom</span></div></div>
         <div class="corner-guide">WHISKEYPOSE <span>·</span> 3D VIEWPORT</div>
         <div id="drop-overlay" class="drop-overlay hidden"><div class="drop-target">Drop FBX to import</div></div>
         <div id="empty-state" class="empty-state">
           <div class="empty-mark">W</div>
           <div class="empty-eyebrow">YOUR CHARACTER STARTS HERE</div>
           <h1>Bring your character<br/><em>to life.</em></h1>
-          <p>Drop an FBX to inspect its geometry, skeleton and skin. No file is uploaded to a cloud service.</p>
+          
           <button class="hero-button" id="open-file-hero">＋ &nbsp; Import FBX file</button>
           <div class="empty-footer">FBX • A-POSE • T-POSE</div>
         </div>
@@ -57,7 +56,7 @@ app.innerHTML = `
       </div>
       <div id="notification" class="notification" role="status" aria-live="polite"></div>
     </section>
-    <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content" role="region" aria-label="Inspector controls" tabindex="0"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="engine-settings-open" class="worker-config-button" title="Configure External Engines" aria-label="Configure External Engines">⚙</button><button id="retry-worker" title="Check the local export worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
+    <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content" role="region" aria-label="Inspector controls" tabindex="0"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="engine-settings-open" class="worker-config-button" aria-label="Configure External Engines">⚙</button><button id="retry-worker" aria-label="Check Blender worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
   </div>
   <input id="file-input" type="file" accept=".fbx" hidden />
   <input id="marker-input" type="file" accept=".json,application/json" hidden />
@@ -66,7 +65,6 @@ app.innerHTML = `
       <header class="engines-head"><div><small>LOCAL PROCESSING</small><h2 id="engines-title">External Engines</h2></div><button id="engines-close" aria-label="Close settings">✕</button></header>
       <div class="engines-body">
         <div class="engines-current"><div class="engines-current-icon">B</div><div><strong>Blender Engine</strong><p id="engine-active">Checking installation...</p></div><span id="engine-ready" class="engine-pill">Offline</span></div>
-        <p class="engine-help">Blender runs in the background, locally on this computer. Steam and standalone installations are supported. Nothing is installed or downloaded automatically.</p>
         <label class="engine-field-label" for="engine-candidates">Detected installations</label>
         <select id="engine-candidates" class="engine-control"><option value="">Checking...</option></select>
         <label class="engine-field-label" for="engine-manual-path">Blender executable</label>
@@ -74,7 +72,6 @@ app.innerHTML = `
         <div class="engine-actions"><button id="engine-scan">↻ Scan</button><button id="engine-browse">Browse...</button><button id="engine-auto">Use Auto</button></div>
         <div class="engine-actions engine-primary-actions"><button id="engine-test">Test Engine</button><button id="engine-use">Use This Blender</button></div>
         <p id="engine-message" class="engine-message" role="status" aria-live="polite">Start start-worker.cmd to enable engine settings.</p>
-        <p class="engine-footnote">Your selection is saved locally outside the Git repository. Use Auto to return to automatic detection. Browse opens a native Windows file dialog when supported by Python.</p>
       </div>
     </section>
   </div>
@@ -346,8 +343,8 @@ function setTab(tab) {
   renderPanel();
 }
 function metric(name, value) { return `<div class="metric"><span>${name}</span><strong>${typeof value === "number" ? formatCount(value) : escapeHtml(value)}</strong></div>`; }
-function information(text) { return `<div class="info-card"><span class="info-symbol">ⓘ</span><p>${text}</p></div>`; }
-function sectionTitle(title, subtitle = '') { return `<div class="panel-section-title"><strong>${title}</strong>${subtitle ? `<span>${subtitle}</span>` : ''}</div>`; }
+function information() { return ''; }
+function sectionTitle(title) { return `<div class="panel-section-title"><strong>${title}</strong></div>`; }
 
 function buildEnvelopeDefaults() {
   if (!state.model || state.stats?.bones || !markerTool.getStatus().approved) return false;
@@ -410,7 +407,6 @@ function deformationPanel() {
   const playLabel=d.playing?(d.paused?'▶ Resume':'Ⅱ Pause'):'▶ Play';
   const options=DEFORMATION_SECTIONS.map(section=>`<option value='${section.id}' ${d.focus===section.id?'selected':''}>${escapeHtml(section.label)}</option>`).join('');
   return `<section class='deformation-test'>${sectionTitle('Deformation Test','AUTO DIAGNOSTIC')}
-    <p class='skin-hint'>Automatic joint scan. Speed 0× holds the current pose; 5× runs five times faster. No changes to saved skin/pose.</p>
     <label class='field-label' for='deformation-focus'>TEST SECTION</label>
     <select id='deformation-focus' class='bone-select'>${options}</select>
     <div class='deformation-buttons'><button class='full-button gold' id='deformation-play' ${d.supportedCount?'':'disabled'}>${playLabel}</button>
@@ -420,7 +416,7 @@ function deformationPanel() {
     <label class='field-label' for='deformation-intensity'>AMPLITUDE <strong id='deformation-intensity-readout'>${Math.round(d.intensity*100)}%</strong></label>
     <input class='envelope-slider' id='deformation-intensity' type='range' min='25' max='150' step='5' value='${Math.round(d.intensity*100)}' />
     <div class='deformation-current'>Testing: <strong id='deformation-current'>${escapeHtml(d.stageLabel)}</strong></div>
-    <p class='skin-hint'>Stop restores the exact pose you had before Play. Pausing holds the frame. Unrecognized bones are skipped.</p></section>`;
+</section>`;
 }
 function bindDeformationPanel() {
   if(!$('#deformation-play'))return;
@@ -447,7 +443,6 @@ function skinPoseControls() {
   if(!bone)return information('No matching pose bone was found for this envelope.');
   state.selectedBone=bone;
   return `<div class="live-pose-section">${sectionTitle('Pose Test', 'LIVE DEFORMATION')}
-    <p class="skin-hint">Bend ${escapeHtml(bone.name)} while tuning its envelope. The pose stays in place.</p>
     ${['x','y','z'].map(axis=>`<div class="rotation-row"><label class="axis ${axis}">${axis.toUpperCase()}</label>
       <input data-live-pose-axis="${axis}" type="range" min="-180" max="180" step="1" value="${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}" ${deformationTest.status().playing?'disabled':''} />
       <output data-live-pose-readout="${axis}">${Math.round(THREE.MathUtils.radToDeg(bone.rotation[axis]))}°</output></div>`).join('')}
@@ -476,7 +471,7 @@ function renderPanel() {
   if (state.activeTab === 'import') {
     panel.innerHTML = `
       ${sectionTitle('Source model', 'FBX FORMAT')}
-      ${state.file ? `<div class="asset-card"><div class="asset-file-icon">FBX</div><div><strong title="${escapeHtml(state.file.name)}">${escapeHtml(state.file.name)}</strong><small>${(state.file.size / (1024 * 1024)).toFixed(2)} MB · LOCAL FILE</small></div></div>` : `<div class="asset-placeholder">No file imported yet.<br/>Choose a character FBX to start.</div>`}
+      ${state.file ? `<div class="asset-card"><div class="asset-file-icon">FBX</div><div><strong>${escapeHtml(state.file.name)}</strong><small>${(state.file.size / (1024 * 1024)).toFixed(2)} MB · LOCAL FILE</small></div></div>` : `<div class="asset-placeholder">No FBX imported</div>`}
       ${sectionTitle('Geometry diagnostics')}
       <div class="metrics">${metric('Meshes', s?.meshes ?? '—')}${metric('Vertices', s?.vertices ?? '—')}${metric('Triangles', s?.triangles ?? '—')}${metric('Materials', s?.materials ?? '—')}${metric('Skinned meshes', s?.skinned ?? '—')}${metric('Bones', s?.bones ?? '—')}${metric('Animation clips', s?.animations ?? '—')}</div>
       ${information('Automatic SSR skinning is now the default. The Blender worker calculates weights using bone heat, anatomical region limits and mesh connectivity. No envelope adjustment is required.')}
@@ -489,14 +484,14 @@ function renderPanel() {
     const complete = m.count === m.total;
     panel.innerHTML = `${sectionTitle('Joint markers', 'ALPHA 0.3.1')}
       ${s?.bones ? information('The generated FBX is rigged. Inspect bones below, or reopen the original unrigged FBX to refine markers and regenerate.') : !s ? information('Import an FBX character to start placing anatomical markers. No Blender worker is required for this step.') : `
-      <div class="marker-summary"><strong>${m.count}<span> / ${m.total}</span></strong><span>${complete ? 'Ready for review' : 'Markers confirmed'}<small>Blue = suggested · Green = confirmed · Gold = selected</small></span></div>
-      <div class="marker-list">${MARKER_DEFS.map((def, index) => `<button class="marker-row ${m.selected===def.key?'selected':''}" data-marker="${def.key}"><span class="marker-number">${String(index+1).padStart(2,'0')}</span><span class="marker-description"><strong>${def.label}</strong><small>${def.hint}</small></span><span class="marker-indicator ${m.confirmed[def.key]?'confirmed':'suggested'}"></span></button>`).join('')}</div>
+      <div class="marker-summary"><strong>${m.count}<span> / ${m.total}</span></strong><span>${complete ? 'Ready for review' : 'Markers confirmed'}</span></div>
+      <div class="marker-list">${MARKER_DEFS.map((def, index) => `<button class="marker-row ${m.selected===def.key?'selected':''}" data-marker="${def.key}"><span class="marker-number">${String(index+1).padStart(2,'0')}</span><span class="marker-description"><strong>${def.label}</strong></span><span class="marker-indicator ${m.confirmed[def.key]?'confirmed':'suggested'}"></span></button>`).join('')}</div>
       <div class="marker-toggles"><label><input type="checkbox" id="marker-symmetry" ${m.symmetry ? 'checked':''}/> Mirror L/R</label><label><input type="checkbox" id="marker-preview" ${m.preview ? 'checked':''}/> Skeleton preview</label></div>
       <div class="marker-actions"><button class="half-button" id="marker-suggest">↻ Reset suggestions</button><button class="half-button" id="marker-approve">✓ Confirm all</button></div>
       <div class="marker-actions"><button class="half-button" id="marker-load">↑ Load markers</button><button class="half-button gold-outline" id="marker-save">⇩ Save markers JSON</button></div>
       <div class="skeleton-review ${m.approved ? 'approved' : ''}">
         <strong>Skeleton review · 19 bones</strong>
-        <small>${!m.preview ? 'Enable Skeleton preview to inspect the calculated bones.' : m.previewError ? escapeHtml(m.previewError) : m.approved ? '✓ Skeleton approved. Ready for Auto-Skin.' : `${m.previewBones} actual bone segments shown. Inspect Front and Side.`}</small>
+        <small>${m.previewError ? escapeHtml(m.previewError) : m.approved ? 'Approved' : m.preview ? `${m.previewBones} segments` : ''}</small>
         <button id="approve-skeleton" class="full-button ${m.approved ? '' : 'gold'}" ${complete && m.preview && !m.previewError && !m.approved ? '' : 'disabled'}>${m.approved ? '✓ Skeleton approved' : '✓ Approve skeleton'}</button>
       </div>
       ${information('Set all 16 anatomical markers, enable Skeleton preview, inspect the calculated bones in Front and Side, and approve before skinning. Dragging any marker after approval requires a new review.')}
@@ -554,7 +549,7 @@ function renderPanel() {
       ${!s?.bones && state.skinMethod==='smart-auto' ? `<label class="envelope-show"><input type="checkbox" id="contact-repair" ${state.contactRepair?'checked':''}/> <strong>Experimental Contact Repair</strong> — arm / thigh</label>
       ${information('Pilot for the audited female athletic model only. Replaces fused arm-thigh contacts before automatic weights. Unknown topology is refused without altering the source FBX.')}` : ''}
       ${s?.bones && state.rigReport?.contactRepair?.status==='repaired'
-        ? information('Contact Repair Pilot applied: 42 fused faces replaced by capped surfaces. Inspect both shoulders, hips and underside before production.') : ''}
+        ? '<div class="live-status">● Contact Repair applied</div>' : ''}
       <label class="field-label" for="envelope-bone">INSPECT BONE</label>
       <select id="envelope-bone" class="bone-select">${names.map(n=>`<option value="${n}" ${state.selectedEnvelope===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}</select>
       ${state.skinMethod==='smart-auto'&&s?.bones ? `<label class="envelope-show"><input type="checkbox" id="envelope-override" ${state.envelopeOverride?'checked':''}/> Advanced: use editable envelope override</label>` : ''}
@@ -564,7 +559,6 @@ function renderPanel() {
       <input id="envelope-radius" class="envelope-slider" type="range" min="0.4" max="35" step="0.2" value="${selected.radius*100}" />
       <label class="field-label" for="envelope-strength">INFLUENCE STRENGTH <strong id="envelope-strength-value">${Math.round((selected.strength??1)*100)}%</strong></label>
       <input id="envelope-strength" class="envelope-slider" type="range" min="0" max="300" step="5" value="${(selected.strength??1)*100}" />
-      <div class="skin-hint">Relative influence, normalized with neighboring bones. 0% excludes this volume; 100% is normal.</div>
       <label class="field-label" for="envelope-mode">INFLUENCE BEHAVIOR</label>
       <select id="envelope-mode" class="bone-select"><option value="smooth" ${selected.mode==='smooth'?'selected':''}>Smooth — blend with overlapping bones</option><option value="rigid" ${selected.mode==='rigid'?'selected':''}>Rigid — follow this bone only</option></select>
       <label class="envelope-show"><input type="checkbox" id="envelope-show-all" ${state.showAllEnvelopes?'checked':''}/> Show all envelopes</label>
@@ -583,11 +577,10 @@ function renderPanel() {
         ${sectionTitle('Anatomical Region Influence','SSR DIRECT EDIT')}
         <label class="field-label" for="ssr-region-select">ANATOMICAL REGION</label>
         <select id="ssr-region-select" class="bone-select">${regionOptions.map(r=>`<option value="${escapeHtml(r.id)}" ${r.id===state.regionSelection?'selected':''}>${escapeHtml(r.label)} (${formatCount(r.count)})</option>`).join('')}</select>
-        <p class="skin-hint">Target bone: <strong>${escapeHtml(state.selectedEnvelope)}</strong> (change via Inspect Bone above). Includes vertices the brush cannot reach.</p>
         <label class="field-label" for="ssr-region-strength">INFLUENCE CHANGE <strong id="ssr-region-strength-value">${state.regionStrength}%</strong></label>
         <input id="ssr-region-strength" class="envelope-slider" type="range" min="5" max="100" step="5" value="${state.regionStrength}"/>
         <div class="panel-row"><button class="half-button" id="ssr-region-add">+ Increase</button><button class="half-button" id="ssr-region-reduce">− Reduce</button></div>
-        <div class="skin-hint" id="ssr-region-feedback" role="status" aria-live="polite">Select a region, then increase or reduce influence. Each operation can be undone with Ctrl+Z.</div>
+        <div class="skin-hint operation-feedback" id="ssr-region-feedback" role="status" aria-live="polite"></div>
       </section>` : ''}
       ${sibReady ? `<section class="sib-section">
         ${sectionTitle('Soft Influence Brush','SURFACE PAINT')}
@@ -597,13 +590,11 @@ function renderPanel() {
         <label class="field-label" for="sib-strength">STRENGTH <strong id="sib-strength-value">${Math.round(state.brushStrength*100)}%</strong></label>
         <input id="sib-strength" class="envelope-slider" type="range" min="5" max="100" step="5" value="${state.brushStrength*100}"/>
         <label class="envelope-show"><input id="sib-erase" type="checkbox" ${state.brushErase?'checked':''}/> <strong>REDUCE selected bone</strong> (or hold Shift)</label>
-        <p class="skin-hint" id="sib-mode-hint">${state.brushErase?'REDUCE: removing the selected bone influence. Uncheck to add weight.':'ADD: adding influence to the selected bone. Hold Shift to reduce.'}</p>
-        <p class="skin-hint">Selected bone: <strong>${escapeHtml(state.selectedEnvelope)}</strong>. Brush follows mesh topology; other bone weights adjust automatically.</p>
         <div class="panel-row"><button class="half-button" id="sib-undo">Undo (Ctrl+Z)</button><button class="half-button" id="sib-reset">Reset edits</button></div>
         <div class="live-summary">Edited vertices <strong id="sib-count">${state.liveSkin?.paintedCount()??0}</strong></div>
-        <div class="skin-hint" id="sib-feedback" role="status" aria-live="polite">Strength controls each stroke, not a target weight. Bend this joint in Pose Test to see the deformation.</div>
+        <div class="skin-hint operation-feedback" id="sib-feedback" role="status" aria-live="polite"></div>
       </section>` : ''}
-      ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
+      ${state.liveError ? `<div class="skin-error" role="alert">Live Skin unavailable: ${escapeHtml(state.liveError)}</div>` : ''}
       ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':state.skinMethod==='smart-auto'?'Generate Automatic Rig + Skin':'Generate Rig + Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':envelopeMode?'Save Edited Skin FBX':state.brushDirty?'Save SIB Skin FBX':'Download Automatic Skin FBX'}</button>` : ''}
       ${state.liveSkin ? `<div class="live-status">● ${envelopeMode?'LIVE ENVELOPE OVERRIDE':'AUTOMATIC SSR SKIN'} · No FBX reload</div><div class="live-summary">${envelopeMode?'Outside-envelope vertices':'Fallback vertices'}: <strong id="live-outside-count">${envelopeMode?(state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'):`${formatCount(report.reduce((sum,r)=>sum+(r.seedFallbackVertices||0),0))} / ${formatCount(report.reduce((sum,r)=>sum+(r.vertices||0),0))}`}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
       ` : information(s?.bones ? 'This FBX was imported with a rig. Envelope editing currently applies to skeletons built from WhiskeyPose markers.' : 'Go to Rig, confirm the 16 markers and approve the skeleton. Automatic Skin will generate weights without requiring envelope edits.')}
