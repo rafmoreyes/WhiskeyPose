@@ -8,6 +8,16 @@ WhiskeyPose is a small, FBX-first web application. The eventual goal is to impor
 
 For a cleaner one-click experience on Windows 11, double-click **WhiskeyPose.vbs** in the repository. It opens a compact native launcher (Iniciar / Atualizar, Abrir Edge, Encerrar) with the Worker and Vite hidden, auto git pull, a tray icon and accessible logs. If Windows Script Host is disabled, use **WhiskeyPose-Launcher.cmd** instead. No extra dependencies; the original **Iniciar-WhiskeyPose.bat** remains untouched as a console fallback. Close old Worker and Vite CMD sessions once before switching. See [Windows GUI Launcher](docs/WINDOWS_GUI_LAUNCHER.md) for details.
 
+## Alpha 0.3.6 — Direct SSR Region Influence
+
+When SIB cannot reach a long cloth triangle or an awkwardly posed part, use **Skin → Anatomical Region Influence** instead. Choose an anatomical region (Head, Neck, Torso, Left/Right Arm, Left/Right Leg), then the target bone in **Inspect Bone**. Set **Influence Change** and click **+ Increase** or **− Reduce**. All vertices belonging to that SSR region update immediately in the existing Live Skin, without raycasting or modifying individual vertices by hand. If the region contains multiple disconnected geometry pieces, the selector may also offer specific pieces.
+
+Every region adjustment is atomic, stored in the SIB undo history, and exported through the existing **Save SIB Skin FBX** path. **Ctrl+Z** undoes the last SIB stroke or region adjustment in the Skin tab, except when typing in a text field. **Reset edits** restores the automatic weights. Selecting a region highlights it on the anatomical map; applying a correction switches to the selected-bone weight heatmap.
+
+**Deformation Test Speed now ranges from 0× (hold the current frame) to 5×.** This works with both the Full Scan and isolated joint tests.
+
+This is deliberately a **coarse region-level correction**, not precise cloth segmentation. If skirt geometry is continuously welded to the thigh and SSR classifies it as the same region, adjusting the whole region can also change the leg. Detached pieces are editable separately only when topology exposes them. Fine local corrections still use SIB. See [Alpha 0.3.6 validation](docs/ALPHA_0_3_6_REGION_EDIT_TESTS.md).
+
 ## Alpha 0.3.5 — SSR + Soft Influence Brush (SIB)
 
 **Skin workflow:** generate the automatic SSR rig and skin first, then use the surface-based Soft Influence Brush to correct only the regions that still deform poorly. You no longer need to find an envelope radius to reach the face of a forearm, shoulder, chest or garment.

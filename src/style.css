@@ -114,3 +114,10 @@
 .sib-section .live-summary{margin:8px 0 0}
 .sib-section .skin-hint strong{color:#eab575}
 .sib-section .half-button{min-width:0;flex:1}
+
+/* Alpha 0.3.6: compact, explicit anatomical-region correction. */
+.ssr-direct{border-color:#766047}
+.ssr-direct .bone-select{margin:5px 0 11px}
+.ssr-direct .panel-row{display:flex;gap:7px}
+.ssr-direct .panel-row button:first-child{background:#493928;color:#efc080}
+.ssr-direct #ssr-region-feedback{min-height:2em}

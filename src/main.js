@@ -10,6 +10,7 @@ import { createEnvelopeTool } from './envelope_tool.js';
 import { createLiveSkin } from './live_skin.js';
 import { createDeformationTest, DEFORMATION_SECTIONS } from './deformation_test.js';
 import {createSoftInfluenceTool} from './soft_influence_tool.js';
+import {REGION_BONES} from './region_edit.js';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -19,7 +20,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.5b <span class="version-note">SIB SURFACE PICK FIX</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.6 <span class="version-note">SSR REGION EDIT</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -82,7 +83,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, brushEnabled: false, brushErase:false, brushRadius:.035, brushStrength:.28, brushDirty:false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, brushEnabled: false, brushErase:false, brushRadius:.035, brushStrength:.28, brushDirty:false, regionSelection:'', regionStrength:25, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 const deformationTest=createDeformationTest(THREE);
 let deformationLastFrame=0;
 let notifyTimer;
@@ -180,6 +181,19 @@ function syncSoftTool(){
   });
   softTool.setActive(state.brushEnabled&&available);
 }
+function rerenderSkinAtScroll(){
+  const panel=$('#panel');
+  const previous=panel?.scrollTop||0;
+  renderPanel();
+  if(panel)panel.scrollTop=previous;
+}
+function undoSkinEdit(){
+  if(!state.liveSkin)return false;
+  if(!state.liveSkin.undoBrushStroke(state.selectedEnvelope))return false;
+  state.brushDirty=state.liveSkin.paintedCount()>0;
+  rerenderSkinAtScroll();
+  return true;
+}
 function resizeViewport() {
   const w = Math.max(1, viewport.clientWidth), h = Math.max(1, viewport.clientHeight);
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
@@ -223,7 +237,7 @@ function frameModel() {
 
 function destroyModel() {
   deformationTest.attach([]);
-  state.brushEnabled=false;state.brushDirty=false;softTool.setActive(false);
+  state.brushEnabled=false;state.brushDirty=false;state.regionSelection='';softTool.setActive(false);
   state.liveSkin?.dispose();state.liveSkin=null;state.liveError=null;
   markerTool.setModel(null);
   envelopeTool.clear();
@@ -396,13 +410,13 @@ function deformationPanel() {
   const playLabel=d.playing?(d.paused?'▶ Resume':'Ⅱ Pause'):'▶ Play';
   const options=DEFORMATION_SECTIONS.map(section=>`<option value='${section.id}' ${d.focus===section.id?'selected':''}>${escapeHtml(section.label)}</option>`).join('');
   return `<section class='deformation-test'>${sectionTitle('Deformation Test','AUTO DIAGNOSTIC')}
-    <p class='skin-hint'>Automatic joint scan. No keyframes, Blender process, or changes to saved skin/pose.</p>
+    <p class='skin-hint'>Automatic joint scan. Speed 0× holds the current pose; 5× runs five times faster. No changes to saved skin/pose.</p>
     <label class='field-label' for='deformation-focus'>TEST SECTION</label>
     <select id='deformation-focus' class='bone-select'>${options}</select>
     <div class='deformation-buttons'><button class='full-button gold' id='deformation-play' ${d.supportedCount?'':'disabled'}>${playLabel}</button>
     <button class='full-button' id='deformation-stop' ${d.playing?'':'disabled'}>■ Stop / Restore</button></div>
     <label class='field-label' for='deformation-speed'>SPEED <strong id='deformation-speed-readout'>${d.speed.toFixed(2)}×</strong></label>
-    <input class='envelope-slider' id='deformation-speed' type='range' min='0.25' max='2' step='0.25' value='${d.speed}' />
+    <input class='envelope-slider' id='deformation-speed' type='range' min='0' max='5' step='0.25' value='${d.speed}' />
     <label class='field-label' for='deformation-intensity'>AMPLITUDE <strong id='deformation-intensity-readout'>${Math.round(d.intensity*100)}%</strong></label>
     <input class='envelope-slider' id='deformation-intensity' type='range' min='25' max='150' step='5' value='${Math.round(d.intensity*100)}' />
     <div class='deformation-current'>Testing: <strong id='deformation-current'>${escapeHtml(d.stageLabel)}</strong></div>
@@ -518,6 +532,17 @@ function renderPanel() {
     const selected=active ? state.envelopeConfig.envelopes[state.selectedEnvelope] : null;
     const envelopeMode=state.skinMethod==='envelope'||state.envelopeOverride;
     const sibReady=Boolean(state.liveSkin&&state.skinMethod==='smart-auto'&&!state.envelopeOverride);
+    const regionOptions=sibReady?state.liveSkin.regionList():[];
+    if(regionOptions.length&&!regionOptions.some(r=>r.id===state.regionSelection)){
+      const preferred=regionOptions.find(r=>r.id===
+        (state.selectedEnvelope.includes('.L')?
+          (state.selectedEnvelope.startsWith('thigh')||state.selectedEnvelope.startsWith('shin')||state.selectedEnvelope.startsWith('foot')?'leg.L':'arm.L'):
+        state.selectedEnvelope.includes('.R')?
+          (state.selectedEnvelope.startsWith('thigh')||state.selectedEnvelope.startsWith('shin')||state.selectedEnvelope.startsWith('foot')?'leg.R':'arm.R'):
+        state.selectedEnvelope==='head'?'head':state.selectedEnvelope==='neck'?'neck':'torso'));
+      state.regionSelection=preferred?.id||regionOptions[0].id;
+    }
+    if(sibReady)state.liveSkin.setRegionFocus(state.regionSelection);
     const report=state.rigReport?.weights || [];
     const outside=report.reduce((sum,row)=>sum+(row.fallbackVertices||0),0);
     const total=report.reduce((sum,row)=>sum+(row.totalVertices||0),0);
@@ -550,6 +575,16 @@ function renderPanel() {
        : state.skinMethod==='envelope'||state.envelopeOverride
        ? 'Advanced envelope mode: sliders replace automatic weights. SSR still limits cross-region influence.'
        : 'Legacy Blender weights, without SSR post-processing.')}
+      ${sibReady&&regionOptions.length ? `<section class="sib-section ssr-direct">
+        ${sectionTitle('Anatomical Region Influence','SSR DIRECT EDIT')}
+        <label class="field-label" for="ssr-region-select">ANATOMICAL REGION</label>
+        <select id="ssr-region-select" class="bone-select">${regionOptions.map(r=>`<option value="${escapeHtml(r.id)}" ${r.id===state.regionSelection?'selected':''}>${escapeHtml(r.label)} (${formatCount(r.count)})</option>`).join('')}</select>
+        <p class="skin-hint">Target bone: <strong>${escapeHtml(state.selectedEnvelope)}</strong> (change via Inspect Bone above). Includes vertices the brush cannot reach.</p>
+        <label class="field-label" for="ssr-region-strength">INFLUENCE CHANGE <strong id="ssr-region-strength-value">${state.regionStrength}%</strong></label>
+        <input id="ssr-region-strength" class="envelope-slider" type="range" min="5" max="100" step="5" value="${state.regionStrength}"/>
+        <div class="panel-row"><button class="half-button" id="ssr-region-add">+ Increase</button><button class="half-button" id="ssr-region-reduce">− Reduce</button></div>
+        <div class="skin-hint" id="ssr-region-feedback" role="status" aria-live="polite">Select a region, then increase or reduce influence. Each operation can be undone with Ctrl+Z.</div>
+      </section>` : ''}
       ${sibReady ? `<section class="sib-section">
         ${sectionTitle('Soft Influence Brush','SURFACE PAINT')}
         <label class="envelope-show"><input id="sib-enable" type="checkbox" ${state.brushEnabled?'checked':''}/> <strong>Paint influence on mesh</strong></label>
@@ -560,7 +595,7 @@ function renderPanel() {
         <label class="envelope-show"><input id="sib-erase" type="checkbox" ${state.brushErase?'checked':''}/> <strong>REDUCE selected bone</strong> (or hold Shift)</label>
         <p class="skin-hint" id="sib-mode-hint">${state.brushErase?'REDUCE: removing the selected bone influence. Uncheck to add weight.':'ADD: adding influence to the selected bone. Hold Shift to reduce.'}</p>
         <p class="skin-hint">Selected bone: <strong>${escapeHtml(state.selectedEnvelope)}</strong>. Brush follows mesh topology; other bone weights adjust automatically.</p>
-        <div class="panel-row"><button class="half-button" id="sib-undo">Undo stroke</button><button class="half-button" id="sib-reset">Reset brush</button></div>
+        <div class="panel-row"><button class="half-button" id="sib-undo">Undo (Ctrl+Z)</button><button class="half-button" id="sib-reset">Reset edits</button></div>
         <div class="live-summary">Edited vertices <strong id="sib-count">${state.liveSkin?.paintedCount()??0}</strong></div>
         <div class="skin-hint" id="sib-feedback" role="status" aria-live="polite">Strength controls each stroke, not a target weight. Bend this joint in Pose Test to see the deformation.</div>
       </section>` : ''}
@@ -629,6 +664,45 @@ function renderPanel() {
         if (state.envelopeDefaults?.envelopes?.[state.selectedEnvelope]) updateEnvelope(state.selectedEnvelope,{...state.envelopeDefaults.envelopes[state.selectedEnvelope]});
         renderPanel();
       });
+      $('#ssr-region-select')?.addEventListener('change',event=>{
+        state.regionSelection=event.target.value;
+        const region=regionOptions.find(r=>r.id===state.regionSelection);
+        const preferred=REGION_BONES[region?.key];
+        if(preferred&&names.includes(preferred)){
+          state.selectedEnvelope=preferred;
+          scheduleLiveSkinUpdate();
+        }
+        state.brushEnabled=false;syncSoftTool();
+        state.liveSkin?.setRegionFocus(state.regionSelection);
+        state.showSkinRegions=true;state.showSkinHeatmap=false;
+        state.liveSkin?.toggleHeatmap(false);
+        state.liveSkin?.toggleRegions(true);
+        rerenderSkinAtScroll();
+      });
+      $('#ssr-region-strength')?.addEventListener('input',event=>{
+        state.regionStrength=Number(event.target.value);
+        $('#ssr-region-strength-value').textContent=state.regionStrength+'%';
+      });
+      const adjustRegion=(sign)=>{
+        if(!state.liveSkin||state.processing)return;
+        const result=state.liveSkin.applyRegionInfluence(
+          state.regionSelection,state.selectedEnvelope,sign*state.regionStrength/100);
+        if(result.changed>0){
+          state.brushDirty=state.liveSkin.paintedCount()>0;
+          state.showSkinRegions=false;state.showSkinHeatmap=true;
+          state.liveSkin.toggleHeatmap(true);
+          rerenderSkinAtScroll();
+          const feedback=$('#ssr-region-feedback');
+          if(feedback)feedback.textContent=
+            formatCount(result.changed)+' / '+formatCount(result.total)+
+            ' vertices adjusted. Ctrl+Z to undo.';
+        }else{
+          const feedback=$('#ssr-region-feedback');
+          if(feedback)feedback.textContent='No weight change: target bone may already be at that limit.';
+        }
+      };
+      $('#ssr-region-add')?.addEventListener('click',()=>adjustRegion(1));
+      $('#ssr-region-reduce')?.addEventListener('click',()=>adjustRegion(-1));
       $('#sib-enable')?.addEventListener('change',event=>{
         state.brushEnabled=event.target.checked;
         if(state.brushEnabled){
@@ -649,11 +723,7 @@ function renderPanel() {
         syncSoftTool();
       });
       $('#sib-erase')?.addEventListener('change',event=>{state.brushErase=event.target.checked;syncSoftTool();const hint=$('#sib-mode-hint');if(hint)hint.textContent=state.brushErase?'REDUCE: removing the selected bone influence. Uncheck to add weight.':'ADD: adding influence to the selected bone. Hold Shift to reduce.';});
-      $('#sib-undo')?.addEventListener('click',()=>{
-        if(state.liveSkin?.undoBrushStroke(state.selectedEnvelope)){
-          state.brushDirty=state.liveSkin.paintedCount()>0;renderPanel();
-        }
-      });
+      $('#sib-undo')?.addEventListener('click',undoSkinEdit);
       $('#sib-reset')?.addEventListener('click',()=>{
         if(!state.liveSkin)return;
         state.liveSkin.resetBrush(state.selectedEnvelope);
@@ -966,5 +1036,21 @@ dropzone.addEventListener('drop', (event) => {event.preventDefault(); $('#drop-o
 window.addEventListener('dragover', (event) => event.preventDefault());
 window.addEventListener('drop', (event) => {if (!dropzone.contains(event.target)) event.preventDefault();});
 window.addEventListener('keydown', (event) => {if (event.key.toLowerCase()==='f' && !(event.target instanceof HTMLInputElement)) frameModel();});
+
+window.addEventListener('keydown',(event)=>{
+  if(!(event.ctrlKey||event.metaKey)||event.altKey||event.shiftKey
+     ||event.key.toLowerCase()!=='z'||event.repeat)return;
+  if(state.activeTab!=='skin'||!state.liveSkin)return;
+  if(!$('#engines-overlay').classList.contains('hidden'))return;
+  const element=event.target;
+  const tag=element?.tagName?.toLowerCase();
+  // Let the browser handle text-field undo, but allow Ctrl+Z on sliders.
+  if(element?.isContentEditable||tag==='textarea'||
+     (tag==='input'&&!['range','checkbox','radio'].includes(element.type)))return;
+  if(undoSkinEdit()){
+    event.preventDefault();
+    notify('Last SIB / anatomical region change undone.','success');
+  }
+},true);
 markerTool.setActive(false);
 renderPanel(); checkWorker();

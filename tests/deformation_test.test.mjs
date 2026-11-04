@@ -70,3 +70,25 @@ test('changing section and attaching new skeleton restore old pose',()=>{
   player.attach([]);assert.equal(player.status().playing,false);
   assert.equal(player.play(),false);
 });
+
+test('speed slider accepts zero as hold and 5x without resetting artist pose',()=>{
+ const head=makeBone('head',.25);
+ const player=createDeformationTest(THREE);
+ player.attach([head]);player.setFocus('head');player.play();player.tick(.9);
+ const seconds=player.status().seconds;
+ const pose=head.quaternion.v;
+ player.setSpeed(0);
+ assert.equal(player.status().speed,0);
+ player.tick(1);
+ assert.equal(player.status().seconds,seconds);
+ assert.equal(head.quaternion.v,pose);
+ player.setSpeed(5);
+ assert.equal(player.status().speed,5);
+ player.tick(.1);
+ assert.ok(player.status().seconds>seconds+.49);
+ player.setSpeed(8);
+ assert.equal(player.status().speed,5);
+ player.setSpeed(-1);
+ assert.equal(player.status().speed,0);
+ player.stop();assert.equal(head.quaternion.v,.25);
+});

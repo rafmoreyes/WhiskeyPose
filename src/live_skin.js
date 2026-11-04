@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { distanceSegmentSquared, weightsForDistances } from './envelope_math.js';
 import { headNeckOwnership, headOwnedComponents, meshRegionOwnerships } from './smart_regions.js';
 import {editInfluence,makeAdjacency,surfaceFalloff} from './soft_influence_math.js';
+import {buildRegionTargets} from './region_edit.js';
 
 /** Map FBXLoader's bone names (e.g. forearmR) to WhiskeyPose's forearm.R. */
 const keyOf = name => String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -107,6 +108,19 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
       paintedWeights:Float32Array.from(geometry.getAttribute('skinWeight')?.array || new Float32Array(vertices.count*4)),
       touched:new Set()});
   }
+  const regionTargets=buildRegionTargets(contexts.map(ctx=>({
+    meshName:ctx.mesh.name||'Mesh',ownership:ctx.ownershipSmart,adjacency:ctx.adjacency
+  })));
+  const regionById=new Map(regionTargets.map(target=>{
+    const sets=new Map();
+    for(const seg of target.segments){
+      const set=sets.get(seg.contextIndex)||new Set();
+      for(const i of seg.indices)set.add(i);
+      sets.set(seg.contextIndex,set);
+    }
+    return [target.id,{...target,sets}];
+  }));
+  let regionFocus=null;
   const primary=contexts[0].segments;
   let showHeatmap=false, showRegions=false, selected=names[0];
   let currentRegionMode='smart';
@@ -315,6 +329,73 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
         })
       }))};
   }
+
+  function regionList() {
+    return regionTargets.map(({id,key,label,count})=>({id,key,label,count}));
+  }
+  function setRegionFocus(id){
+    regionFocus=regionById.has(id)?id:null;
+    if(showRegions)for(const ctx of contexts)colorize(ctx);
+  }
+  /** Apply a whole SSR anatomical region, including unreachable surface tips.
+   * This is one atomic, undoable edit; no cursor raycast or envelope is needed.
+   * The same painted buffers feed real-time deformation and SIB FBX export.
+   */
+  function applyRegionInfluence(regionId,boneName,signedStrength){
+    if(workingStroke)endBrushStroke();
+    const target=regionById.get(regionId);
+    const strength=Math.max(-1,Math.min(1,Number(signedStrength)));
+    if(!target||!Number.isFinite(strength)||Math.abs(strength)<1e-6)return {changed:0,total:0};
+    const changes=[];
+    let changed=0;
+    for(const segment of target.segments){
+      const ctx=contexts[segment.contextIndex];
+      const boneIndex=ctx?.byName.get(boneName);
+      if(!Number.isInteger(boneIndex)||!ctx.skinIndex)continue;
+      const prior=new Map();
+      const rest=ctx.segments;
+      for(const i of segment.indices){
+        const offset=i*4;
+        const originalIndices=Array.from(ctx.paintedIndices.subarray(offset,offset+4));
+        const originalWeights=Array.from(ctx.paintedWeights.subarray(offset,offset+4));
+        // When removing 100% of a rigid assignment, select a nearby
+        // anatomically permitted alternative instead of leaving zero weights.
+        let fallbackIndex=-1,nearest=Infinity;
+        const allowed=ctx.ownershipSmart[i]?.allowed||rest.map(b=>b.name);
+        for(const candidate of rest){
+          if(candidate.index===boneIndex||!allowed.includes(candidate.name))continue;
+          const distance=distanceSegmentSquared(ctx.restPoints[i],candidate.head,candidate.tail);
+          if(distance<nearest){nearest=distance;fallbackIndex=candidate.index;}
+        }
+        if(fallbackIndex<0)for(const candidate of rest){
+          if(candidate.index===boneIndex)continue;
+          const distance=distanceSegmentSquared(ctx.restPoints[i],candidate.head,candidate.tail);
+          if(distance<nearest){nearest=distance;fallbackIndex=candidate.index;}
+        }
+        if(!editInfluence(ctx.paintedIndices,ctx.paintedWeights,offset,boneIndex,strength,fallbackIndex))continue;
+        prior.set(i,{indices:originalIndices,weights:originalWeights});
+        changed++;
+        for(let j=0;j<4;j++){
+          ctx.skinIndex[offset+j]=ctx.paintedIndices[offset+j];
+          ctx.skinWeight[offset+j]=ctx.paintedWeights[offset+j];
+        }
+        const differs=[0,1,2,3].some(j=>
+          ctx.paintedIndices[offset+j]!==ctx.sourceIndices[offset+j]||
+          Math.abs(ctx.paintedWeights[offset+j]-ctx.sourceWeights[offset+j])>1e-5);
+        if(differs)ctx.touched.add(i);else ctx.touched.delete(i);
+      }
+      if(prior.size){
+        changes.push([ctx,prior]);
+        commitModifiedBuffers(ctx,boneName);
+      }
+    }
+    if(changes.length){
+      undoHistory.push(changes);
+      if(undoHistory.length>24)undoHistory.shift();
+    }
+    return {changed,total:target.count,region:target.label};
+  }
+
   function regionColor(zone){
     if(zone.startsWith('head')||zone==='detached-head')return [.94,.72,.40];
     if(zone.startsWith('neck'))return [.78,.57,.80];
@@ -330,7 +411,10 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     for(let i=0;i<ctx.vertices.count;i++){
       if(showRegions){
         const zone=(currentRegionMode==='smart'?ctx.ownershipSmart:ctx.ownershipHeadOnly)[i]?.zone??'unclassified';
-        colors.set(regionColor(zone),i*3);
+        const base=regionColor(zone);
+        const focus=regionFocus?regionById.get(regionFocus):null;
+        const inFocus=!focus||focus.sets.get(contexts.indexOf(ctx))?.has(i);
+        colors.set(inFocus?base:[.19,.22,.25],i*3);
       }else{
         const v=ctx.weightForSelected?.[i]||0;
         const t=Math.min(1,Math.max(0,v));
@@ -383,6 +467,7 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
   }
   return {height,update,toggleHeatmap,toggleRegions,poseSegments,dispose,
     beginBrushStroke,paintHit,endBrushStroke,undoBrushStroke,resetBrush,paintedCount,getBrushEdits,
+    regionList,setRegionFocus,applyRegionInfluence,
     brushStatus:()=>lastBrushStatus,
     get hasHeatmap(){return showHeatmap;}, get hasRegionMap(){return showRegions;}};
 }

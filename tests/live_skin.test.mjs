@@ -47,8 +47,10 @@ const regions=readFileSync(new URL('../src/smart_regions.js',import.meta.url),'u
 const regionsUrl='data:text/javascript;base64,'+Buffer.from(regions).toString('base64');
 const softMath=readFileSync(new URL('../src/soft_influence_math.js',import.meta.url),'utf8');
 const softMathUrl='data:text/javascript;base64,'+Buffer.from(softMath).toString('base64');
+const regionEdits=readFileSync(new URL('../src/region_edit.js',import.meta.url),'utf8');
+const regionEditsUrl='data:text/javascript;base64,'+Buffer.from(regionEdits).toString('base64');
 let source=readFileSync(new URL('../src/live_skin.js',import.meta.url),'utf8');
-source=source.replace("import * as THREE from 'three';","const THREE = globalThis.__WP_TEST_THREE;").replace("from './envelope_math.js'",`from '${mathUrl}'`).replace("from './smart_regions.js'",`from '${regionsUrl}'`).replace("from './soft_influence_math.js'",`from '${softMathUrl}'`);
+source=source.replace("import * as THREE from 'three';","const THREE = globalThis.__WP_TEST_THREE;").replace("from './envelope_math.js'",`from '${mathUrl}'`).replace("from './smart_regions.js'",`from '${regionsUrl}'`).replace("from './soft_influence_math.js'",`from '${softMathUrl}'`).replace("from './region_edit.js'",`from '${regionEditsUrl}'`);
 const live=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const names=['pelvis','spine','chest','neck','head'];
 for(const side of ['L','R'])for(const part of ['shoulder','upper_arm','forearm','hand','thigh','shin','foot'])names.push(`${part}.${side}`);
@@ -228,5 +230,66 @@ test('SIB reports sparse geometry instead of silently pretending a dab worked',(
  assert.equal(count,0);
  assert.match(ctl.brushStatus(),/no vertex in brush radius/);
  assert.equal(ctl.endBrushStroke(),false);
+ ctl.dispose();
+});
+
+test('SSR region influence reaches all region vertices without a raycast',()=>{
+ const {mesh}=rig(),settings=config();
+ mesh.name='Body';
+ const inputIndices=new Uint16Array(16),inputWeights=new Float32Array(16);
+ for(let i=0;i<4;i++){
+   inputIndices[i*4]=0;inputIndices[i*4+1]=1;
+   inputWeights[i*4]=.8;inputWeights[i*4+1]=.2;
+ }
+ mesh.geometry.setAttribute('skinIndex',new Attribute(inputIndices,4));
+ mesh.geometry.setAttribute('skinWeight',new Attribute(inputWeights,4));
+ const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+ ctl.update(settings,'pelvis','smart-auto');
+ const regions=ctl.regionList();
+ assert.ok(regions.length>0);
+ assert.equal(regions.reduce((sum,r)=>sum+(r.id.startsWith('piece:')?0:r.count),0),4);
+ const chosen=regions.find(r=>r.id==='torso')||regions[0];
+ const before=Array.from(mesh.geometry.getAttribute('skinWeight').array);
+ const bonePose=mesh.skeleton.bones[0].matrixWorld;
+ const result=ctl.applyRegionInfluence(chosen.id,'pelvis',.5);
+ assert.equal(result.changed,chosen.count);
+ assert.equal(result.total,chosen.count);
+ assert.equal(ctl.paintedCount(),chosen.count);
+ assert.notDeepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),before);
+ const output=ctl.getBrushEdits();
+ assert.ok(output.meshes.length>0);
+ assert.ok(output.meshes[0].samples.length>0);
+ assert.strictEqual(mesh.skeleton.bones[0].matrixWorld,bonePose);
+ assert.equal(ctl.undoBrushStroke('pelvis'),true);
+ assert.equal(ctl.paintedCount(),0);
+ assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),before);
+ ctl.dispose();
+});
+test('region reduce and SIB stroke share a single ordered Undo history',()=>{
+ const {mesh}=rig(),settings=config();
+ mesh.name='Body';mesh.matrixWorld=new Matrix4();
+ const inputIndices=new Uint16Array(16),inputWeights=new Float32Array(16);
+ for(let i=0;i<4;i++){
+   inputIndices[i*4]=0;inputIndices[i*4+1]=1;
+   inputWeights[i*4]=.8;inputWeights[i*4+1]=.2;
+ }
+ mesh.geometry.setAttribute('skinIndex',new Attribute(inputIndices,4));
+ mesh.geometry.setAttribute('skinWeight',new Attribute(inputWeights,4));
+ const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+ ctl.update(settings,'pelvis','smart-auto');
+ const origin=Array.from(mesh.geometry.getAttribute('skinWeight').array);
+ const chosen=ctl.regionList()[0];
+ const adjusted=ctl.applyRegionInfluence(chosen.id,'pelvis',-.3);
+ assert.ok(adjusted.changed>0);
+ const afterRegion=Array.from(mesh.geometry.getAttribute('skinWeight').array);
+ ctl.beginBrushStroke();
+ const painted=ctl.paintHit({object:mesh,face:{a:0,b:1,c:2},
+   point:{toArray:()=>[.05,0,0]}},'pelvis',.5,.3,false);
+ assert.ok(painted>0);
+ ctl.endBrushStroke();
+ assert.equal(ctl.undoBrushStroke('pelvis'),true);
+ assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),afterRegion);
+ assert.equal(ctl.undoBrushStroke('pelvis'),true);
+ assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),origin);
  ctl.dispose();
 });

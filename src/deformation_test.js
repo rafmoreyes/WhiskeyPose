@@ -96,7 +96,7 @@ export function createDeformationTest(THREE) {
     stop();
     focus=value;
   }
-  function setSpeed(value) {speed=clamp(Number(value)||1,.25,2);}
+  function setSpeed(value) {const parsed=Number(value);speed=clamp(Number.isFinite(parsed)?parsed:1,0,5);}
   function setIntensity(value) {intensity=clamp(Number(value)||1,.25,1.5);}
   function tick(deltaSeconds) {
     if(!playing||paused||!snapshot)return stageLabel;
