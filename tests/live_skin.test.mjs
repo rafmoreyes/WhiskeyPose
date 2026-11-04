@@ -212,3 +212,21 @@ test('Reduce on zero weight is a true no-op with no phantom Undo entry',()=>{
   assert.equal(ctl.undoBrushStroke('thigh.L'),false);
   ctl.dispose();
 });
+
+test('SIB reports sparse geometry instead of silently pretending a dab worked',()=>{
+ const {mesh}=rig(),settings=config();
+ mesh.name='Body';mesh.matrixWorld=new Matrix4();
+ const indices=new Uint16Array(16),weights=new Float32Array(16);
+ for(let i=0;i<4;i++)weights[i*4]=1;
+ mesh.geometry.setAttribute('skinIndex',new Attribute(indices,4));
+ mesh.geometry.setAttribute('skinWeight',new Attribute(weights,4));
+ const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+ ctl.update(settings,'pelvis','smart-auto');
+ ctl.beginBrushStroke();
+ const count=ctl.paintHit({object:mesh,face:{a:0,b:1,c:2},
+   point:{toArray:()=>[999,999,999]}},'pelvis',.01,.5,false);
+ assert.equal(count,0);
+ assert.match(ctl.brushStatus(),/no vertex in brush radius/);
+ assert.equal(ctl.endBrushStroke(),false);
+ ctl.dispose();
+});

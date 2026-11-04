@@ -19,7 +19,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.5a <span class="version-note">SSR + SIB GPU FIX</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.5b <span class="version-note">SIB SURFACE PICK FIX</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -146,16 +146,21 @@ const softTool=createSoftInfluenceTool({
   renderer,camera,scene,controls,
   meshes:()=>state.skinnedMeshes,
   liveSkin:()=>state.liveSkin,
-  onChange:(changed,reducing)=>{
+  onChange:(changed,reducing,reason)=>{
     if(changed>0)state.brushDirty=true;
     const counter=$('#sib-count');
     if(counter)counter.textContent=String(state.liveSkin?.paintedCount()??0);
     const feedback=$('#sib-feedback');
     if(feedback)feedback.textContent=changed>0
       ? `Weights updated on ${formatCount(changed)} vertices.`
-      : reducing
+      : reason ? reason : reducing
         ? 'Nothing to reduce here: selected bone already has zero influence.'
         : 'No change at this location: weight may already be fully assigned.';
+  },
+  onHover:(hit)=>{
+    if(hit)return;
+    const feedback=$('#sib-feedback');
+    if(feedback)feedback.textContent='No editable skinned surface at cursor. Orbit to inspect the tip from another angle.';
   },
   onStrokeEnd:()=>{
     state.brushDirty=(state.liveSkin?.paintedCount()??0)>0;

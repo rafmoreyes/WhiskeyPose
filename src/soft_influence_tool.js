@@ -1,11 +1,13 @@
 import * as THREE from 'three';
+import { createPoseAwarePicker } from './soft_pick.js';
 
 /** Paint directly on the visible skinned surface; orbit remains available when
  * the tool is disabled. No raycasts against hidden or occluded geometry.
  * Uses Three.js's skinned-mesh raycaster and current posed geometry. */
-export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,liveSkin,onChange,onStrokeEnd}) {
+export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,liveSkin,onChange,onStrokeEnd,onHover}) {
   const canvas=renderer.domElement;
   const raycaster=new THREE.Raycaster();
+  const picker=createPoseAwarePicker(THREE.DoubleSide);
   const mouse=new THREE.Vector2();
   const ring=new THREE.Mesh(
     new THREE.RingGeometry(.96,1,48),
@@ -15,19 +17,23 @@ export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,l
   ring.visible=false;ring.renderOrder=30;
   scene.add(ring);
   const normal=new THREE.Vector3(),up=new THREE.Vector3(0,0,1);
-  let enabled=false,drawing=false,erase=false,name='upper_arm.L',radius=.045,strength=.3,pointerId=null;
+  let enabled=false,drawing=false,erase=false,name='upper_arm.L',radius=.045,strength=.3,pointerId=null,overSurface=null;
   function hit(event){
     const rect=canvas.getBoundingClientRect();
     if(!rect.width||!rect.height)return null;
     mouse.set((event.clientX-rect.left)/rect.width*2-1,-((event.clientY-rect.top)/rect.height*2-1));
     raycaster.setFromCamera(mouse,camera);
-    const candidates=meshes().filter(obj=>obj?.isSkinnedMesh&&obj.visible);
-    return raycaster.intersectObjects(candidates,false)[0]||null;
+    // Posed meshes can extend far beyond their cached initial bounding sphere.
+    // The picker recomputes it only when bone matrices or skin weights change,
+    // and uses two-sided raycasts without altering the rendered material.
+    return picker.pick(raycaster,meshes());
   }
   function moveCursor(result){
     if(!result?.face){ring.visible=false;return;}
     const obj=result.object;
     normal.copy(result.face.normal).transformDirection(obj.matrixWorld).normalize();
+    // Keep the 3D brush ring camera-facing when painting back-facing cloth.
+    if(normal.dot(raycaster.ray.direction)>0)normal.negate();
     ring.position.copy(result.point).addScaledVector(normal,.002*radius);
     ring.quaternion.setFromUnitVectors(up,normal);
     ring.scale.setScalar(radius);
@@ -36,7 +42,7 @@ export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,l
   function paint(result){
     if(!result||!liveSkin())return;
     const n=liveSkin().paintHit(result,name,radius,strength,erase);
-    onChange?.(n,erase);
+    onChange?.(n,erase,liveSkin().brushStatus?.());
   }
   function down(event){
     if(!enabled||event.button!==0)return;
@@ -58,6 +64,10 @@ export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,l
       if(event.pointerId!==pointerId)return;
     }
     const result=hit(event);
+    if(Boolean(result)!==overSurface){
+      overSurface=Boolean(result);
+      onHover?.(overSurface);
+    }
     moveCursor(result);
     if(drawing)paint(result);
   }
@@ -81,7 +91,7 @@ export function createSoftInfluenceTool({renderer,camera,scene,controls,meshes,l
   }
   function setActive(value){
     enabled=Boolean(value);
-    if(!enabled){end();ring.visible=false;}
+    if(!enabled){end();ring.visible=false;overSurface=null;}
     canvas.style.cursor=enabled?'crosshair':'';
     canvas.style.touchAction=enabled?'none':'';
   }

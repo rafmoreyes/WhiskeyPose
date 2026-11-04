@@ -111,6 +111,7 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
   let showHeatmap=false, showRegions=false, selected=names[0];
   let currentRegionMode='smart';
   let workingStroke=null;const undoHistory=[];
+  let lastBrushStatus='';
   function update(configNow,selectedName=selected,mode='envelope'){
     selected=selectedName;
     currentRegionMode=configNow.regionMode??'smart';
@@ -186,6 +187,7 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     if(showHeatmap||showRegions)colorize(ctx);
   }
   function beginBrushStroke(){
+    lastBrushStatus='';
     if(workingStroke) return;
     workingStroke=new Map();
   }
@@ -209,7 +211,10 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     };
     const affected=surfaceFalloff(ctx.adjacency,worldPosition,
       [hit.face.a,hit.face.b,hit.face.c],hitPoint,radius);
-    if(!affected.length)return 0;
+    if(!affected.length){
+      lastBrushStatus='Large triangle / sparse geometry: no vertex in brush radius. Increase Brush Size.';
+      return 0;
+    }
     let count=0,prev=workingStroke.get(ctx);
     if(!prev){prev=new Map();workingStroke.set(ctx,prev);}
     const rest=ctx.segments;
@@ -252,7 +257,14 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
         if(changed)ctx.touched.add(i);else ctx.touched.delete(i);
       }
     }
-    if(count)commitModifiedBuffers(ctx,name);
+    if(count){
+      lastBrushStatus='';
+      commitModifiedBuffers(ctx,name);
+    }else{
+      lastBrushStatus=erase
+        ? 'No influence to remove here for the selected bone.'
+        : 'This area may already have full influence from the selected bone.';
+    }
     return count;
   }
   function endBrushStroke(){
@@ -371,5 +383,6 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
   }
   return {height,update,toggleHeatmap,toggleRegions,poseSegments,dispose,
     beginBrushStroke,paintHit,endBrushStroke,undoBrushStroke,resetBrush,paintedCount,getBrushEdits,
+    brushStatus:()=>lastBrushStatus,
     get hasHeatmap(){return showHeatmap;}, get hasRegionMap(){return showRegions;}};
 }
