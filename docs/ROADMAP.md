@@ -113,3 +113,22 @@ Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime moca
 - Detached head/hair mesh island detection using topology and UV-seam position welding
 - Browser and Blender worker implement matching region constraints; no new packages
 - Next: Alpha 0.3.3 expands region ownership to arms, legs, body, clothing and props
+
+
+## Alpha 0.3.4 — Automatic Skin Solver (experimental)
+
+Implemented: Automatic Skin is the recommended default. SSR protects anatomical
+regions; Blender bone-heat seeds are filtered by allowed bone chains and smoothed
+along mesh connectivity. A deterministic anatomical-distance fallback handles
+failed bone-heat assignments. No capsule radius/strength setup is needed.
+
+Live Skin now preserves and displays actual imported automatic FBX weights;
+Advanced Envelope Override remains opt-in and reversible, including restoring
+the original automatic FBX for download. Deformation Test is unchanged.
+
+**Acceptance gate:** on at least three actual stylized FBX characters, generate
+from confirmed markers without tuning envelopes, run Head/Neck, shoulders,
+elbows, hips and knees in Deformation Test; compare artifacts and time to fix
+against Alpha 0.3.3. Inspect exports in Blender and Unreal. If it fails,
+investigate topology, region boundary conditions and detached mesh ownership
+before adding more UI controls.

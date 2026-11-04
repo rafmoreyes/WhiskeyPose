@@ -92,3 +92,22 @@ test('heatmap can be toggled without permanently replacing the material',()=>{
   assert.equal(mesh.geometry.getAttribute('color'),undefined);
   ctl.dispose();
 });
+
+test('automatic mode preserves Blender FBX weights even after optional envelope override',()=>{
+  const {mesh}=rig(),settings=config();
+  const inputIndex=new Uint16Array([0,1,2,0, 0,1,2,0, 0,1,2,0, 0,1,2,0]);
+  const inputWeights=new Float32Array([.7,.2,.1,0, .3,.6,.1,0, .1,.7,.2,0, .1,.1,.8,0]);
+  mesh.geometry.setAttribute('skinIndex',new Attribute(inputIndex,4));
+  mesh.geometry.setAttribute('skinWeight',new Attribute(inputWeights,4));
+  const original=Array.from(inputWeights);
+  const ctl=live.createLiveSkin([mesh],names.map(name=>({name})),settings);
+  const before=ctl.update(settings,'pelvis','smart-auto');
+  assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),original);
+  assert.equal(before.total,4);
+  settings.envelopes.pelvis.strength=3;
+  ctl.update(settings,'pelvis','envelope');
+  assert.notDeepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),original);
+  ctl.update(settings,'pelvis','smart-auto');
+  assert.deepEqual(Array.from(mesh.geometry.getAttribute('skinWeight').array),original);
+  ctl.dispose();
+});

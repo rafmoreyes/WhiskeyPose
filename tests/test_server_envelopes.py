@@ -40,4 +40,23 @@ class EnvelopeHttpTests(unittest.TestCase):
             self.assertEqual(code,200);self.assertEqual(data,b'FBX')
             self.assertEqual(recorded,[{'radius':.14,'mode':'rigid'}])
             self.assertEqual(json.loads(headers['X-WhiskeyPose-Report'])['skinMode'],'envelope')
+    def test_smart_auto_requires_no_envelope_payload(self):
+        body={'name':'example.fbx','fbxBase64':base64.b64encode(b'Fake').decode(),
+              'skeletonApproved':True,'markers':payload(),'method':'smart-auto'}
+        def blender(command,**kwargs):
+            self.assertIn('--method',command)
+            self.assertEqual(command[command.index('--method')+1],'smart-auto')
+            self.assertNotIn('--envelopes',command)
+            with open(command[command.index('--output')+1],'wb') as stream:
+                stream.write(b'FBX')
+            with open(command[command.index('--report')+1],'w') as stream:
+                json.dump({'template':'confirmed-markers','landmarkCount':16,
+                           'skinMode':'smart-auto','envelopeCount':0},stream)
+            return type('Result',(),{'returncode':0,'stderr':'','stdout':''})()
+        with patch.object(server,'find_blender',return_value='/blender'),patch.object(server.subprocess,'run',side_effect=blender):
+            code,data,headers=self.post(body)
+            self.assertEqual(code,200)
+            self.assertEqual(data,b'FBX')
+            self.assertEqual(json.loads(headers['X-WhiskeyPose-Report'])['skinMode'],'smart-auto')
+
 if __name__=='__main__':unittest.main()

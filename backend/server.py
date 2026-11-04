@@ -159,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                     marker_path = directory / 'markers.json'
                     marker_path.write_text(json.dumps(landmarks), encoding='utf-8')
                     method = payload.get('method', 'auto')
-                    if method not in ('auto', 'proximity', 'envelope'):
+                    if method not in ('auto', 'proximity', 'envelope', 'smart-auto'):
                         self.reply_json(400, {'error': 'Unsupported weight method.'}); return
                     command = [blender, '--background', '--factory-startup', '--python', str(AUTORIG_SCRIPT), '--', '--input', str(source), '--output', str(target), '--report', str(report), '--method', method, '--markers', str(marker_path)]
                     if method == 'envelope':

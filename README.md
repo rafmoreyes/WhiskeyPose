@@ -185,3 +185,8 @@ SSR is a deterministic, local region-ownership pass before Envelope Skin. It gro
 **Skin UI:** SSR On/Off (head-only 0.3.2 fallback), Show anatomical regions (vertex-colored group map), existing influence heatmap, envelopes, pose controls, Deformation Test and Save Edited Skin FBX. SSR defaults to On, including for older envelope settings, and the same region mode is included in the payload sent to Blender.
 
 **Limitations:** anatomical heuristics are not learned segmentation. Large costume pieces crossing regions, connected hair, overlapping limbs, costumes with holes, accessories welded to body meshes, and complex coats/capes may still be classified incorrectly. Validate with the Region Map and Blender FBX export. See docs/ALPHA_0_3_3_SSR_TESTS.md.
+
+
+## Alpha 0.3.4 — Automatic Skin (SSR + topology)
+
+The recommended skinning method is now **Automatic Skin**, not the envelope editor. After approving 16 rig markers, choose Automatic Skin (default) and generate weights without editing capsule radii. The Blender Worker attempts bone-heat initialization, then anatomically restricts weights with SSR and smooths transitions along mesh connectivity. An anatomical-distance fallback is used if needed. Envelopes remain available as an optional advanced correction mode, and switching the override off restores the originally generated FBX weights in Live Skin. Read [docs/ALPHA_0_3_4_AUTOMATIC_SKIN_TESTS.md](docs/ALPHA_0_3_4_AUTOMATIC_SKIN_TESTS.md) for the full comparison and acceptance procedure.

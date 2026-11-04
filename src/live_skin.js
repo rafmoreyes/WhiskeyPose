@@ -94,12 +94,14 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     contexts.push({mesh,geometry,vertices,segments,distances,ownershipHeadOnly,ownershipSmart,
       byName:new Map(segments.map(s=>[s.name,s.index])),
       originalMaterial:mesh.material, originalColors:geometry.getAttribute('color'), heatmapMaterial:null,
-      skinIndex:null,skinWeight:null,weightForSelected:null});
+      skinIndex:null,skinWeight:null,weightForSelected:null,
+      sourceIndices:Uint16Array.from(geometry.getAttribute('skinIndex')?.array || new Uint16Array(vertices.count*4)),
+      sourceWeights:Float32Array.from(geometry.getAttribute('skinWeight')?.array || new Float32Array(vertices.count*4))});
   }
   const primary=contexts[0].segments;
   let showHeatmap=false, showRegions=false, selected=names[0];
   let currentRegionMode='smart';
-  function update(configNow,selectedName=selected){
+  function update(configNow,selectedName=selected,mode='envelope'){
     selected=selectedName;
     currentRegionMode=configNow.regionMode??'smart';
     let outside=0,total=0;const regions={};
@@ -107,16 +109,27 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
       const vertexCount=ctx.vertices.count,nb=names.length;
       const indices=new Uint16Array(vertexCount*4),weights=new Float32Array(vertexCount*4);
       const selectedWeights=new Float32Array(vertexCount);
+      const useImportedWeights=mode==='smart-auto' || mode==='auto';
+      const selectedIndex=ctx.byName.get(selected);
       for(let i=0;i<vertexCount;i++){
         const ownership=(currentRegionMode==='smart'?ctx.ownershipSmart:ctx.ownershipHeadOnly)[i];
         const zone=ownership?.zone??'unclassified';regions[zone]=(regions[zone]??0)+1;
-        const answer=weightsForDistances(names,ctx.distances.subarray(i*nb,(i+1)*nb),configNow,height,4,ownership);
-        if(answer.fallback)outside++;
-        for(let j=0;j<answer.weights.length;j++){
-          const [name,value]=answer.weights[j];
-          indices[i*4+j]=ctx.byName.get(name);
-          weights[i*4+j]=value;
-          if(name===selected)selectedWeights[i]=value;
+        if(useImportedWeights){
+          for(let j=0;j<4;j++){
+            const slot=i*4+j;
+            indices[slot]=ctx.sourceIndices[slot]||0;
+            weights[slot]=ctx.sourceWeights[slot]||0;
+            if(indices[slot]===selectedIndex)selectedWeights[i]+=weights[slot];
+          }
+        }else{
+          const answer=weightsForDistances(names,ctx.distances.subarray(i*nb,(i+1)*nb),configNow,height,4,ownership);
+          if(answer.fallback)outside++;
+          for(let j=0;j<answer.weights.length;j++){
+            const [name,value]=answer.weights[j];
+            indices[i*4+j]=ctx.byName.get(name);
+            weights[i*4+j]=value;
+            if(name===selected)selectedWeights[i]=value;
+          }
         }
       }
       total+=vertexCount;

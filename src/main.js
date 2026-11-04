@@ -18,7 +18,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.3 <span class="version-note">SMART REGIONS REGIONS</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.4 <span class="version-note">AUTOMATIC SKIN</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -81,7 +81,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'envelope', envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 const deformationTest=createDeformationTest(THREE);
 let deformationLastFrame=0;
 let notifyTimer;
@@ -231,7 +231,7 @@ async function importFBX(file, options = {}) {
     const {meshes, skinned, bones, stats} = readStats(fbx);
     if (!meshes.length) throw new Error('The FBX does not contain a displayable mesh.');
     destroyModel();
-    if (!options.generated && !options.keepEnvelope) { state.envelopeConfig = null; state.envelopeDefaults = null; state.envelopeBones = null; state.envelopeDirty = false; state.savedRigMarkers = null; }
+    if (!options.generated && !options.keepEnvelope) { state.envelopeOverride = false; state.autoRiggedFile=null;state.autoRigReport=null;state.envelopeConfig = null; state.envelopeDefaults = null; state.envelopeBones = null; state.envelopeDirty = false; state.savedRigMarkers = null; }
     state.file = file; state.sourceFile = options.generated ? (state.sourceFile || file) : file; state.riggedFile = options.generated ? file : null; state.rigReport = options.report || null; state.model = fbx; state.meshes = meshes; state.skinnedMeshes = skinned; state.bones = bones; state.stats = stats;
     for (const bone of bones) state.rest.set(bone, {quaternion: bone.quaternion.clone(), position: bone.position.clone(), scale: bone.scale.clone()});
     deformationTest.attach(bones);
@@ -249,13 +249,13 @@ async function importFBX(file, options = {}) {
     $('#viewport-foot-left').textContent = `${formatCount(stats.vertices)} VERTICES · ${formatCount(stats.triangles)} TRIS`;
     $('#viewport-foot-right').textContent = stats.bones ? `${stats.bones} BONES DETECTED` : 'UNRIGGED MESH';
     state.selectedBone = bones[0] || null;
-    if (options.generated && state.envelopeConfig && state.envelopeBones && skinned.length && state.skinMethod === 'envelope') {
+    if (options.generated && state.envelopeConfig && state.envelopeBones && skinned.length && (state.skinMethod === 'envelope' || state.skinMethod === 'smart-auto')) {
       try {
         state.liveSkin=createLiveSkin(skinned,state.envelopeBones,state.envelopeConfig);
         state.envelopeHeight=state.liveSkin.height;
         state.liveSkin.toggleHeatmap(state.showSkinHeatmap && state.activeTab==='skin');
         state.liveSkin.toggleRegions(state.showSkinRegions && state.activeTab==='skin');
-        state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope);
+        state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope,state.skinMethod);
       }catch(error){state.liveError=error.message;console.warn('Live Skin initialization failed:',error);}
     }
     renderPanel(); updateExportUI();
@@ -322,6 +322,7 @@ function buildEnvelopeDefaults() {
   return true;
 }
 function refreshEnvelopePreview() {
+  if(state.skinMethod==='smart-auto'&&!state.envelopeOverride){envelopeTool.clear();return;}
   envelopeTool.update({bones:state.liveSkin ? state.liveSkin.poseSegments() : state.envelopeBones,
     getPoseSegments:state.liveSkin?()=>state.liveSkin.poseSegments():null,
     config:state.envelopeConfig,selected:state.selectedEnvelope,
@@ -329,13 +330,13 @@ function refreshEnvelopePreview() {
 }
 let liveUpdatePending=false;
 function scheduleLiveSkinUpdate() {
-  if(liveUpdatePending || !state.liveSkin || state.skinMethod!=='envelope') return;
+  if(liveUpdatePending || !state.liveSkin) return;
   liveUpdatePending=true;
   requestAnimationFrame(()=>{
     liveUpdatePending=false;
     if(!state.liveSkin||!state.envelopeConfig)return;
     try {
-      state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope);
+      state.liveDiagnostics=state.liveSkin.update(state.envelopeConfig,state.selectedEnvelope,state.envelopeOverride?'envelope':state.skinMethod);
       state.liveError=null;
       if(state.activeTab==='skin'){
         const label=$('#live-outside-count');
@@ -423,7 +424,7 @@ function renderPanel() {
       ${state.file ? `<div class="asset-card"><div class="asset-file-icon">FBX</div><div><strong title="${escapeHtml(state.file.name)}">${escapeHtml(state.file.name)}</strong><small>${(state.file.size / (1024 * 1024)).toFixed(2)} MB · LOCAL FILE</small></div></div>` : `<div class="asset-placeholder">No file imported yet.<br/>Choose a character FBX to start.</div>`}
       ${sectionTitle('Geometry diagnostics')}
       <div class="metrics">${metric('Meshes', s?.meshes ?? '—')}${metric('Vertices', s?.vertices ?? '—')}${metric('Triangles', s?.triangles ?? '—')}${metric('Materials', s?.materials ?? '—')}${metric('Skinned meshes', s?.skinned ?? '—')}${metric('Bones', s?.bones ?? '—')}${metric('Animation clips', s?.animations ?? '—')}</div>
-      ${information('Alpha 0.3: experimental marker-driven envelope Auto-Rig + Auto-Skin for upright humanoids in A/T pose. Requires the Blender worker. This is not AI-based yet.')}
+      ${information('Automatic SSR skinning is now the default. The Blender worker calculates weights using bone heat, anatomical region limits and mesh connectivity. No envelope adjustment is required.')}
       <button class="full-button gold" id="panel-import">＋ &nbsp; Import FBX</button>
       `;
     $('#panel-import').addEventListener('click', selectFile);
@@ -446,7 +447,7 @@ function renderPanel() {
       ${information('Set all 16 anatomical markers, enable Skeleton preview, inspect the calculated bones in Front and Side, and approve before skinning. Dragging any marker after approval requires a new review.')}
       `}
       <div class="legacy-rig-panel">${sectionTitle('Generate rig from markers', 'ALPHA 0.3.1')}
-      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Envelope Skin'}</button>` : ''}
+      ${s && !s.bones ? `<button id="auto-rig" class="full-button gold" ${canRig && complete && m.approved ? '' : 'disabled'}>${state.processing ? 'Generating rig and weights…' : 'Generate Rig + Automatic Skin'}</button>` : ''}
       ${s && !s.bones && !state.workerReady ? information('Start the Blender worker (start-worker.cmd) for rig generation. Marker editing remains local and works without it.') : ''}
       ${s && !s.bones && !complete ? information(`Confirm all ${m.total} markers, then review the skeleton.`) : ''}
       ${s && !s.bones && complete && !m.approved ? information('Preview and approve the 19-bone skeleton before generating skin weights.') : ''}
@@ -474,16 +475,20 @@ function renderPanel() {
     const names = active ? state.envelopeBones.map(b=>b.name) : [];
     if (active && !names.includes(state.selectedEnvelope)) state.selectedEnvelope=names[0];
     const selected=active ? state.envelopeConfig.envelopes[state.selectedEnvelope] : null;
+    const envelopeMode=state.skinMethod==='envelope'||state.envelopeOverride;
     const report=state.rigReport?.weights || [];
     const outside=report.reduce((sum,row)=>sum+(row.fallbackVertices||0),0);
     const total=report.reduce((sum,row)=>sum+(row.totalVertices||0),0);
-    panel.innerHTML = `${sectionTitle('Smart Skin Envelopes', 'ALPHA 0.3.2 LIVE')}
-      <div class="headline-stat"><strong>${active ? names.length : (s?.skinned ?? '—')}</strong><span>${active?'Bone-owned envelopes':'Skinned meshes'}</span></div>
+    panel.innerHTML = `${sectionTitle('Automatic Skin / Smart Regions', 'ALPHA 0.3.4')}
+      <div class="headline-stat"><strong>${active ? names.length : (s?.skinned ?? '—')}</strong><span>${active?'Deformation bones':'Skinned meshes'}</span></div>
       ${active ? `
       <label class="field-label" for="skin-method">SKINNING METHOD</label>
-      <select id="skin-method" class="bone-select" ${s?.bones ? 'disabled' : ''}><option value="envelope" ${state.skinMethod==='envelope'?'selected':''}>Envelope Skin — editable volumes</option><option value="auto" ${state.skinMethod==='auto'?'selected':''}>Blender Auto Weights — legacy</option></select>
-      <label class="field-label" for="envelope-bone">ENVELOPE OWNER / BONE</label>
+      <select id="skin-method" class="bone-select" ${s?.bones ? 'disabled' : ''}><option value="smart-auto" ${state.skinMethod==='smart-auto'?'selected':''}>Automatic Skin — SSR + topology</option><option value="envelope" ${state.skinMethod==='envelope'?'selected':''}>Envelope Skin — advanced</option><option value="auto" ${state.skinMethod==='auto'?'selected':''}>Blender Auto Weights — legacy</option></select>
+      <label class="field-label" for="envelope-bone">INSPECT BONE</label>
       <select id="envelope-bone" class="bone-select">${names.map(n=>`<option value="${n}" ${state.selectedEnvelope===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}</select>
+      ${state.skinMethod==='smart-auto'&&s?.bones ? `<label class="envelope-show"><input type="checkbox" id="envelope-override" ${state.envelopeOverride?'checked':''}/> Advanced: use editable envelope override</label>` : ''}
+      ${state.skinMethod==='smart-auto'&&!state.envelopeOverride ? information('Automatic weights are already calculated. Use Deformation Test to check the result. Envelope controls are optional.') : ''}
+      <div class="advanced-envelope-editor" ${envelopeMode ? '' : 'hidden'}>
       <label class="field-label" for="envelope-radius">CAPSULE RADIUS <strong id="envelope-radius-value">${(selected.radius*100).toFixed(1)}%</strong> OF CHARACTER HEIGHT</label>
       <input id="envelope-radius" class="envelope-slider" type="range" min="0.4" max="35" step="0.2" value="${selected.radius*100}" />
       <label class="field-label" for="envelope-strength">INFLUENCE STRENGTH <strong id="envelope-strength-value">${Math.round((selected.strength??1)*100)}%</strong></label>
@@ -493,24 +498,37 @@ function renderPanel() {
       <select id="envelope-mode" class="bone-select"><option value="smooth" ${selected.mode==='smooth'?'selected':''}>Smooth — blend with overlapping bones</option><option value="rigid" ${selected.mode==='rigid'?'selected':''}>Rigid — follow this bone only</option></select>
       <label class="envelope-show"><input type="checkbox" id="envelope-show-all" ${state.showAllEnvelopes?'checked':''}/> Show all envelopes</label>
       <label class="envelope-show"><input type="checkbox" id="ssr-enable" ${state.envelopeConfig.regionMode!=='head-only'?'checked':''}/> <strong>Smart Skin Regions (SSR)</strong></label>
+      </div>
       <label class="envelope-show"><input type="checkbox" id="ssr-region-map" ${state.showSkinRegions?'checked':''}/> Show anatomical regions</label>
       <label class="envelope-show"><input type="checkbox" id="envelope-heatmap" ${state.showSkinHeatmap?'checked':''}/> Show influence heatmap</label>
       ${state.liveDiagnostics?.regions ? '<div class="ssr-metrics">'+Object.entries(state.liveDiagnostics.regions).map(([zone,n])=>zone+': '+formatCount(n)).join(' · ')+'</div>' : ''}
-      <button class="full-button" id="envelope-reset">↻ Reset selected envelope</button>
-      ${information(state.skinMethod==='envelope' ? 'SSR assigns head, neck, trunk, each arm and each leg to their own bone groups before envelope weighting. Tiny detached accessories may use rigid ownership. Turn SSR off to compare the previous head-only protection; this is heuristic, not AI segmentation.' : 'Blender Auto Weights does not use Smart Head Region. Select Envelope Skin to enable the anatomical ownership rules.')}
+      <button class="full-button" id="envelope-reset" ${envelopeMode?'':'hidden'}>↻ Reset selected envelope</button>
+      ${information(state.skinMethod==='smart-auto'&&!state.envelopeOverride
+       ? 'Automatic mode: Blender bone-heat or anatomical fallback, constrained by SSR and topology smoothing. No envelope sizes required.'
+       : state.skinMethod==='envelope'||state.envelopeOverride
+       ? 'Advanced envelope mode: sliders replace automatic weights. SSR still limits cross-region influence.'
+       : 'Legacy Blender weights, without SSR post-processing.')}
       ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
-      ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Generate Rig + Envelope Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Save Edited Skin FBX (no pose reset)'}</button>` : ''}
-      ${state.liveSkin ? `<div class="live-status">● LIVE SKIN · Editing in memory, no FBX reload</div><div class="live-summary">Outside-envelope vertices: <strong id="live-outside-count">${state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
-      ` : information(s?.bones ? 'This FBX was imported with a rig. Envelope editing currently applies to skeletons built from WhiskeyPose markers.' : 'Go to Rig, confirm the 16 markers and approve the skeleton. The Skin tab will then generate editable envelopes automatically.')}
+      ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':state.skinMethod==='smart-auto'?'Generate Automatic Rig + Skin':'Generate Rig + Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':envelopeMode?'Save Edited Skin FBX':'Download Automatic Skin FBX'}</button>` : ''}
+      ${state.liveSkin ? `<div class="live-status">● ${envelopeMode?'LIVE ENVELOPE OVERRIDE':'AUTOMATIC SSR SKIN'} · No FBX reload</div><div class="live-summary">${envelopeMode?'Outside-envelope vertices':'Fallback vertices'}: <strong id="live-outside-count">${envelopeMode?(state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'):`${formatCount(report.reduce((sum,r)=>sum+(r.seedFallbackVertices||0),0))} / ${formatCount(report.reduce((sum,r)=>sum+(r.vertices||0),0))}`}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
+      ` : information(s?.bones ? 'This FBX was imported with a rig. Envelope editing currently applies to skeletons built from WhiskeyPose markers.' : 'Go to Rig, confirm the 16 markers and approve the skeleton. Automatic Skin will generate weights without requiring envelope edits.')}
       ${report.length && !state.liveSkin ? `<div class="metrics">${metric('Envelope skin',state.rigReport.skinMode==='envelope'?'Used':'Not used')}${metric('Outside-envelope vertices',total?`${formatCount(outside)} / ${formatCount(total)} (${(outside/total*100).toFixed(1)}%)`:'—')}</div>` : ''}
       ${state.skinnedMeshes.length ? `<div class="mesh-list">${state.skinnedMeshes.map(m=>`<div class="mesh-row"><span class="mesh-dot"></span>${escapeHtml(m.name||'Unnamed mesh')}<small>${m.skeleton?.bones?.length||0} bones</small></div>`).join('')}</div>` : ''}
       <button class="full-button" id="skin-wire">${state.wire ? 'Hide wireframe' : 'Show wireframe'}</button>
-      ${state.riggedFile && state.rigReport?.version && state.rigReport.version!=='0.3.2' ? information('Older rig detected: Smart Head Pivot requires returning to Edit source markers and generating a new rig from the unrigged FBX. Existing generated skeletons are not silently migrated.') : ''}
-      ${information('Smart Head/Neck Regions are experimental: long hair attached to the body and unusually raised limbs can still need correction. The FBX exports in Rest Pose; save your artistic pose separately as JSON.')}`;
+      ${state.riggedFile && state.rigReport?.version && ['0.1.1','0.2.1','0.3.0','0.3.1'].includes(state.rigReport.version) ? information('Older rig detected: Smart Head Pivot requires returning to Edit source markers and generating a new rig from the unrigged FBX. Existing generated skeletons are not silently migrated.') : ''}
+      ${information('Automatic SSR and topology-aware smoothing are experimental. Test shoulders, knees and clothing with Deformation Test. Skin exports in Rest Pose; save the artistic pose separately.')}`;
     $('#skin-wire').addEventListener('click', () => {state.wire=!state.wire;$('#toggle-wire').classList.toggle('toggled',state.wire);updateWire();renderPanel();});
     if (active) {
       refreshEnvelopePreview();
-      $('#skin-method').addEventListener('change',event=>{state.skinMethod=event.target.value;if(state.skinMethod==='envelope')scheduleLiveSkinUpdate();renderPanel();});
+      $('#skin-method').addEventListener('change',event=>{state.skinMethod=event.target.value;state.envelopeOverride=false;scheduleLiveSkinUpdate();renderPanel();});
+      $('#envelope-override')?.addEventListener('change',event=>{state.envelopeOverride=event.target.checked;
+        state.envelopeDirty=state.envelopeOverride;
+        if(!state.envelopeOverride&&state.autoRiggedFile){
+          state.file=state.autoRiggedFile;
+          state.riggedFile=state.autoRiggedFile;
+          state.rigReport=state.autoRigReport;
+        }
+        refreshEnvelopePreview();scheduleLiveSkinUpdate();renderPanel();});
       $('#envelope-bone').addEventListener('change',event=>{state.selectedEnvelope=event.target.value;scheduleLiveSkinUpdate();renderPanel();});
       $('#envelope-radius').addEventListener('input',event=>{
         const radius=Number(event.target.value)/100;
@@ -679,6 +697,13 @@ function updateExportUI() {
   button.title = !state.file ? 'Import an FBX first' : !state.workerReady ? 'Start the Blender worker (start-worker.cmd)' : 'Experimental Blender FBX round-trip';
 }
 async function generateRig({rebuild=false}={}) {
+  // The originally generated automatic FBX is already available. Avoid a
+  // redundant Blender job when no advanced envelope correction was made.
+  if(rebuild && state.skinMethod==='smart-auto' && !state.envelopeOverride && state.riggedFile){
+    saveBlob(state.autoRiggedFile||state.riggedFile,(state.autoRiggedFile||state.riggedFile).name);
+    notify('Automatic Skin FBX downloaded. Current pose preserved.','success');
+    return;
+  }
   if (!state.workerReady || state.processing) return;
   if (!rebuild && (!state.file || state.stats?.bones || !markerTool.getStatus().approved)) return;
   if (!rebuild && !state.envelopeConfig) {
@@ -687,14 +712,15 @@ async function generateRig({rebuild=false}={}) {
   const inputFile = rebuild ? state.sourceFile : state.file;
   const markers = rebuild ? state.savedRigMarkers : markerTool.asApprovedRigPayload();
   if (!inputFile || !markers || !state.envelopeConfig) return;
+  const effectiveMethod=state.envelopeOverride&&state.skinMethod==='smart-auto'?'envelope':state.skinMethod;
   state.processing = true;
   renderPanel();
-  notify('Blender is calculating rig and envelope-driven skin weights…');
+  notify(effectiveMethod==='smart-auto'?'Blender is generating automatic SSR skin weights…':'Blender is calculating rig and skin…');
   try {
     const markerDraft = rebuild ? state.savedMarkerDraft : markerTool.asDraft(inputFile.name);
     const payload = {
       name:inputFile.name, fbxBase64:await fileAsBase64(inputFile),
-      method:state.skinMethod, skeletonApproved:true, markers,
+      method:effectiveMethod, skeletonApproved:true, markers,
       envelopes:validateEnvelopeDraft(state.envelopeConfig,state.envelopeBones),
     };
     const response = await fetch('/api/auto-rig', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -703,11 +729,11 @@ async function generateRig({rebuild=false}={}) {
       throw Error(error.error||response.statusText);
     }
     const report=JSON.parse(response.headers.get('X-WhiskeyPose-Report')||'{}');
-    if (report.template!=='confirmed-markers'||report.landmarkCount!==16||report.skinMode!==state.skinMethod||report.envelopeCount!==(state.skinMethod==='envelope'?19:0)) {
-      throw Error('Worker did not confirm 16-marker envelope skinning. Restart the worker after git pull.');
+    if (report.template!=='confirmed-markers'||report.landmarkCount!==16||report.skinMode!==effectiveMethod||report.envelopeCount!==(effectiveMethod==='envelope'?19:0)) {
+      throw Error('Worker did not confirm automatic/advanced skin. Restart the Worker after git pull.');
     }
     const blob=await response.blob();
-    const rigged=new File([blob],inputFile.name.replace(/\.fbx$/i,'')+'_WhiskeyPose_EnvelopeRig.fbx',{type:'application/octet-stream'});
+    const rigged=new File([blob],inputFile.name.replace(/\.fbx$/i,'')+'_WhiskeyPose_Rig.fbx',{type:'application/octet-stream'});
     state.savedRigMarkers=markers;
     state.savedMarkerDraft=markerDraft;
     if(rebuild){
@@ -715,20 +741,21 @@ async function generateRig({rebuild=false}={}) {
       state.file=rigged;state.riggedFile=rigged;state.rigReport=report;
       state.envelopeDirty=false;
       saveBlob(rigged,rigged.name.replace(/\.fbx$/i,'')+'_EditedSkin.fbx');
-      notify('Skin saved from the original FBX. Your current pose is unchanged in the viewport. FBX contains rest-pose skin; save pose JSON separately.','success');
+      notify('Skin FBX saved. The current viewport pose is unchanged; the file contains Rest Pose skin. Save the pose separately.','success');
       return;
     }
     const loaded=await importFBX(rigged,{generated:true,report,markerDraft});
     if(!loaded){saveBlob(rigged,rigged.name);throw Error('FBX was generated but the viewport could not load it; file downloaded for review.');}
+    if(effectiveMethod==='smart-auto'){state.autoRiggedFile=rigged;state.autoRigReport=report;}
     state.envelopeDirty=false;
     state.bonesVisible=true;
     $('#toggle-skeleton').classList.add('toggled');
     if(state.skeletonHelper)state.skeletonHelper.visible=true;
     setTab('skin');
-    notify(`Rig generated (${report.skinMode}): ${state.stats.bones} bones. Inspect deformation and fallback counts.`, 'success');
+    notify(`Rig generated (${report.skinMode}): ${state.stats.bones} bones. Run Deformation Test to inspect the result.`, 'success');
   } catch(error){
-    notify(`Envelope Skin failed: ${error.message}`,'error');
-    console.error('Envelope Skin failed:',error);
+    notify(`Skin generation failed: ${error.message}`,'error');
+    console.error('Skin generation failed:',error);
   } finally {
     state.processing=false;
     renderPanel();
@@ -745,7 +772,7 @@ function fileAsBase64(file) {
 }
 async function exportFBX() {
   if (!state.file || !state.workerReady) return;
-  if(state.liveSkin && state.envelopeDirty){setTab('skin');notify('Save Edited Skin FBX first. The current FBX does not contain your latest live envelope changes.','error');return;}
+  if(state.liveSkin && state.envelopeDirty && (state.skinMethod==='envelope'||state.envelopeOverride)){setTab('skin');notify('Save Edited Skin FBX first. The current FBX does not contain your latest live envelope changes.','error');return;}
   if (!confirm('Experimental export: Blender will re-import and export the FBX. Pose transfer for existing rigs is approximate and needs manual verification. Continue?')) return;
   const button = $('#export-fbx-top');
   button.disabled = true; button.textContent = 'Exporting…';

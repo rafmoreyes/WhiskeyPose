@@ -15,6 +15,7 @@ from rig_math import proximity_weights
 from marker_rig import make_marker_template
 from envelope_skin import validate_envelopes, envelope_weights
 from smart_regions import head_neck_ownership, head_owned_components, mesh_region_ownerships
+from automatic_skin import solve_automatic_skin
 
 
 def arguments():
@@ -23,7 +24,7 @@ def arguments():
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--report', required=True)
-    parser.add_argument('--method', choices=('auto', 'proximity', 'envelope'), default='auto')
+    parser.add_argument('--method', choices=('auto', 'proximity', 'envelope', 'smart-auto'), default='auto')
     parser.add_argument('--envelopes')
     parser.add_argument('--markers', required=True)
     return parser.parse_args(args)
@@ -125,6 +126,34 @@ def assign_envelopes(mesh, rig, definitions, height, config, region_mode='smart'
     return (fallback_count, region_counts) if report else fallback_count
 
 
+def assign_smart_auto(mesh, rig, definitions, height):
+    """Bone-heat initialization + SSR filtering + topology-aware weight smoothing."""
+    heat_ok = try_bone_heat(mesh, rig, definitions)
+    world = mesh.matrix_world.copy()
+    points = [tuple(world @ v.co) for v in mesh.data.vertices]
+    faces = [tuple(poly.vertices) for poly in getattr(mesh.data,'polygons',())]
+    seed = None
+    if heat_ok:
+        indexes={group.index:group.name for group in mesh.vertex_groups
+                 if group.name in {bone['name'] for bone in definitions}}
+        seed=[{indexes[item.group]:item.weight for item in v.groups
+               if item.group in indexes and item.weight>0} for v in mesh.data.vertices]
+    weights,diagnostics=solve_automatic_skin(points,faces,definitions,height,seed)
+    remove_bone_groups(mesh,definitions)
+    groups={name:mesh.vertex_groups.new(name=name) for name in (b['name'] for b in definitions)}
+    for vertex,per_bone in zip(mesh.data.vertices,weights):
+        for name,value in per_bone.items():
+            groups[name].add([vertex.index],value,'REPLACE')
+    original_world=mesh.matrix_world.copy()
+    mesh.parent=rig
+    mesh.matrix_world=original_world
+    if not any(m.type=='ARMATURE' and m.object==rig for m in mesh.modifiers):
+        modifier=mesh.modifiers.new('WhiskeyPose Automatic Skin','ARMATURE')
+        modifier.object=rig
+    diagnostics['seedMethod']='bone-heat' if heat_ok else 'anatomical-distance'
+    return diagnostics
+
+
 def try_bone_heat(mesh, rig, definitions):
     # Bone heat is Blender's native automatic weights, not an AI model.
     bpy.ops.object.select_all(action='DESELECT')
@@ -163,6 +192,10 @@ def main():
         envelope_config = validate_envelopes(envelope_payload, definitions)
     methods = []
     for mesh in meshes:
+        if args.method == 'smart-auto':
+            diag=assign_smart_auto(mesh,rig,definitions,dimensions['height'])
+            methods.append({'mesh':mesh.name,'weights':'smart-auto',**diag})
+            continue
         if envelope_config is not None:
             fallback_count, region_counts = assign_envelopes(mesh, rig, definitions, dimensions['height'], envelope_config, region_mode=region_mode, report=True)
             methods.append({'mesh': mesh.name, 'weights': 'envelopes',
@@ -188,10 +221,10 @@ def main():
         apply_unit_scale=True,
         mesh_smooth_type='OFF',
     )
-    report = {'version': '0.3.3', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['SSR 0.3.3 uses heuristic anatomical regions and disconnected islands, not learned segmentation. Long coats, overlapping limbs, connected accessories and asymmetric costumes still need review.']}
+    report = {'version': '0.3.4', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['SSR automatic weights are experimental. Bone-heat may fail on disconnected meshes; the solver then uses anatomical-distance fallback. Check shoulder, hips, long coats and hair before production.']}
     with open(args.report, 'w', encoding='utf-8') as handle:
         json.dump(report, handle)
-    print('WhiskeyPose Alpha 0.1 output:', json.dumps(report))
+    print('WhiskeyPose Alpha 0.3.4 output:', json.dumps(report))
 
 
 if __name__ == '__main__':
