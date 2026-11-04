@@ -20,7 +20,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.6 <span class="version-note">SSR REGION EDIT</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.7 <span class="version-note">CONTACT REPAIR PILOT</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -83,7 +83,7 @@ app.innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatCount = (n) => new Intl.NumberFormat('en-US').format(n);
-const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, brushEnabled: false, brushErase:false, brushRadius:.035, brushStrength:.28, brushDirty:false, regionSelection:'', regionStrength:25, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
+const state = { processing: false, riggedFile: null, rigReport: null, autoRiggedFile: null, autoRigReport: null, sourceFile: null, activeTab: 'import', file: null, model: null, skeletonHelper: null, bones: [], rest: new Map(), selectedBone: null, meshes: [], skinnedMeshes: [], stats: null, workerReady: false, skinMethod: 'smart-auto', contactRepair:false, envelopeOverride: false, envelopeConfig: null, envelopeDefaults: null, envelopeBones: null, envelopeHeight: 0, selectedEnvelope: 'upper_arm.L', showAllEnvelopes: false, showSkinHeatmap: true, showSkinRegions:false, liveSkin: null, liveError: null, envelopeDirty: false, brushEnabled: false, brushErase:false, brushRadius:.035, brushStrength:.28, brushDirty:false, regionSelection:'', regionStrength:25, savedRigMarkers: null, wire: false, gridVisible: true, bonesVisible: false };
 const deformationTest=createDeformationTest(THREE);
 let deformationLastFrame=0;
 let notifyTimer;
@@ -285,7 +285,7 @@ async function importFBX(file, options = {}) {
     const {meshes, skinned, bones, stats} = readStats(fbx);
     if (!meshes.length) throw new Error('The FBX does not contain a displayable mesh.');
     destroyModel();
-    if (!options.generated && !options.keepEnvelope) { state.envelopeOverride = false; state.autoRiggedFile=null;state.autoRigReport=null;state.envelopeConfig = null; state.envelopeDefaults = null; state.envelopeBones = null; state.envelopeDirty = false; state.savedRigMarkers = null; }
+    if (!options.generated && !options.keepEnvelope) { state.envelopeOverride = false; state.autoRiggedFile=null;state.autoRigReport=null;state.envelopeConfig = null; state.envelopeDefaults = null; state.envelopeBones = null; state.envelopeDirty = false; state.savedRigMarkers = null; state.contactRepair=/^female athletic figure 3d model\.fbx$/i.test(file.name); }
     state.file = file; state.sourceFile = options.generated ? (state.sourceFile || file) : file; state.riggedFile = options.generated ? file : null; state.rigReport = options.report || null; state.model = fbx; state.meshes = meshes; state.skinnedMeshes = skinned; state.bones = bones; state.stats = stats;
     for (const bone of bones) state.rest.set(bone, {quaternion: bone.quaternion.clone(), position: bone.position.clone(), scale: bone.scale.clone()});
     deformationTest.attach(bones);
@@ -551,6 +551,10 @@ function renderPanel() {
       ${active ? `
       <label class="field-label" for="skin-method">SKINNING METHOD</label>
       <select id="skin-method" class="bone-select" ${s?.bones ? 'disabled' : ''}><option value="smart-auto" ${state.skinMethod==='smart-auto'?'selected':''}>Automatic Skin — SSR + topology</option><option value="envelope" ${state.skinMethod==='envelope'?'selected':''}>Envelope Skin — advanced</option><option value="auto" ${state.skinMethod==='auto'?'selected':''}>Blender Auto Weights — legacy</option></select>
+      ${!s?.bones && state.skinMethod==='smart-auto' ? `<label class="envelope-show"><input type="checkbox" id="contact-repair" ${state.contactRepair?'checked':''}/> <strong>Experimental Contact Repair</strong> — arm / thigh</label>
+      ${information('Pilot for the audited female athletic model only. Replaces fused arm-thigh contacts before automatic weights. Unknown topology is refused without altering the source FBX.')}` : ''}
+      ${s?.bones && state.rigReport?.contactRepair?.status==='repaired'
+        ? information('Contact Repair Pilot applied: 42 fused faces replaced by capped surfaces. Inspect both shoulders, hips and underside before production.') : ''}
       <label class="field-label" for="envelope-bone">INSPECT BONE</label>
       <select id="envelope-bone" class="bone-select">${names.map(n=>`<option value="${n}" ${state.selectedEnvelope===n?'selected':''}>${escapeHtml(n)}</option>`).join('')}</select>
       ${state.skinMethod==='smart-auto'&&s?.bones ? `<label class="envelope-show"><input type="checkbox" id="envelope-override" ${state.envelopeOverride?'checked':''}/> Advanced: use editable envelope override</label>` : ''}
@@ -612,6 +616,7 @@ function renderPanel() {
     if (active) {
       refreshEnvelopePreview();
       syncSoftTool();
+      $('#contact-repair')?.addEventListener('change',event=>{state.contactRepair=event.target.checked;});
       $('#skin-method').addEventListener('change',event=>{if(event.target.value!=='smart-auto' && state.liveSkin?.paintedCount()>0){
         notify('SIB edits exist. Save or Reset brush before switching skin method.','error');
         renderPanel();return;
@@ -919,7 +924,7 @@ async function generateRig({rebuild=false}={}) {
     const markerDraft = rebuild ? state.savedMarkerDraft : markerTool.asDraft(inputFile.name);
     const payload = {
       name:inputFile.name, fbxBase64:await fileAsBase64(inputFile),
-      method:effectiveMethod, skeletonApproved:true, markers,
+      method:effectiveMethod, contactRepair:effectiveMethod==='smart-auto' && state.contactRepair, skeletonApproved:true, markers,
       envelopes:validateEnvelopeDraft(state.envelopeConfig,state.envelopeBones),
     };
     const response = await fetch('/api/auto-rig', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -931,8 +936,12 @@ async function generateRig({rebuild=false}={}) {
     if (report.template!=='confirmed-markers'||report.landmarkCount!==16||report.skinMode!==effectiveMethod||report.envelopeCount!==(effectiveMethod==='envelope'?19:0)) {
       throw Error('Worker did not confirm automatic/advanced skin. Restart the Worker after git pull.');
     }
+    if(payload.contactRepair && (report.contactRepair?.status!=='repaired'
+       || report.contactRepair?.facesRemoved!==42 || report.contactRepair?.watertightTopologyCheck!==true)){
+      throw Error('Worker did not verify the contact repair. No repaired rig accepted.');
+    }
     const blob=await response.blob();
-    const rigged=new File([blob],inputFile.name.replace(/\.fbx$/i,'')+'_WhiskeyPose_Rig.fbx',{type:'application/octet-stream'});
+    const rigged=new File([blob],inputFile.name.replace(/\.fbx$/i,'')+(payload.contactRepair?'_WhiskeyPose_ContactRepair_Pilot.fbx':'_WhiskeyPose_Rig.fbx'),{type:'application/octet-stream'});
     state.savedRigMarkers=markers;
     state.savedMarkerDraft=markerDraft;
     if(rebuild){

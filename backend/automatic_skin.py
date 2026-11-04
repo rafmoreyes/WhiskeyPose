@@ -43,7 +43,7 @@ def _adjacency(points, faces, height):
     return links
 
 
-def solve_automatic_skin(points, faces, bones, height, seed_weights=None, passes=4):
+def solve_automatic_skin(points, faces, bones, height, seed_weights=None, passes=4, ownership_override=None):
     """Return (per-vertex dict weights, diagnostics). No envelope settings.
 
     Fixed anatomical ownership (head, neck transition, rigid islands) remains
@@ -56,6 +56,13 @@ def solve_automatic_skin(points, faces, bones, height, seed_weights=None, passes
     if seed_weights is not None and len(seed_weights)!=n:
         raise ValueError('Bone-heat seed count differs from vertex count')
     plans=mesh_region_ownerships(points,faces,bones,height)
+    if ownership_override:
+        for vertex_id,plan in ownership_override.items():
+            if not isinstance(vertex_id,int) or not 0<=vertex_id<n:
+                raise ValueError('Contact repair has invalid vertex ownership index')
+            if not isinstance(plan,dict) or not ('weights' in plan or 'allowed' in plan):
+                raise ValueError('Invalid contact ownership override')
+            plans[vertex_id]=plan
     by_name={b['name']:b for b in bones}
     weights=[];fixed=[];fallback=0;regions={}
     epsilon2=(height*.018)**2

@@ -132,3 +132,12 @@ elbows, hips and knees in Deformation Test; compare artifacts and time to fix
 against Alpha 0.3.3. Inspect exports in Blender and Unreal. If it fails,
 investigate topology, region boundary conditions and detached mesh ownership
 before adding more UI controls.
+
+## Alpha 0.3.7 — Guarded Contact Repair Pilot
+
+Experimental: exact-match repair for the audited female athletic FBX (2 × 21
+fused arm/thigh contact faces). Source stays unchanged, Worker reconstructs
+two capped surfaces per side and constrains local SSR bone ownership before
+Blender auto skin. Unknown topology is rejected. A Windows/Blender FBX
+roundtrip and deformation-test approval are mandatory before expanding to
+other characters or enabling general auto-cutting.

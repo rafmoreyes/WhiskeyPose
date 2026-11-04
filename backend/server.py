@@ -55,7 +55,7 @@ class Handler(BaseHTTPRequestHandler):
             blender = active_blender()
             self.reply_json(200, {
                 'service': 'whiskeypose-local-worker',
-                'version': '0.3.5',
+                'version': '0.3.7',
                 'blenderAvailable': bool(blender),
                 'blenderPath': blender['path'] if blender else None,
                 'autoRigAvailable': AUTORIG_SCRIPT.is_file() and bool(blender),
@@ -217,5 +217,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     print(f'WhiskeyPose Blender worker: http://{HOST}:{PORT}')
     print('Blender:', find_blender() or 'NOT FOUND — set BLENDER_PATH')
-    print('Alpha 0.3.5 SSR + Soft Influence Brush (experimental).')
+    print('Alpha 0.3.7 optional guarded Contact Repair Pilot (experimental).')
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

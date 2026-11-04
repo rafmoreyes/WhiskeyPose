@@ -8,6 +8,22 @@ WhiskeyPose is a small, FBX-first web application. The eventual goal is to impor
 
 For a cleaner one-click experience on Windows 11, double-click **WhiskeyPose.vbs** in the repository. It opens a compact native launcher (Iniciar / Atualizar, Abrir Edge, Encerrar) with the Worker and Vite hidden, auto git pull, a tray icon and accessible logs. If Windows Script Host is disabled, use **WhiskeyPose-Launcher.cmd** instead. No extra dependencies; the original **Iniciar-WhiskeyPose.bat** remains untouched as a console fallback. Close old Worker and Vite CMD sessions once before switching. See [Windows GUI Launcher](docs/WINDOWS_GUI_LAUNCHER.md) for details.
 
+## Alpha 0.3.7 — Contact Repair Pilot (audited athletic FBX only)
+
+**An experimental repair for the specific female athletic FBX supplied by the artist.** The original was audited to contain 21 fused arm/thigh contact faces on each side, which stretch into giant wings when the arms move. The optional repair operates on a copy inside Blender **before rigging and automatic SSR weights**.
+
+1. Import the **original, unrigged** `female athletic figure 3d model.fbx` (do **not** import the old `_Rig_SIB.fbx`).
+2. Load or approve the 16 markers, choose **Automatic Skin — SSR + topology**.
+3. Verify **Experimental Contact Repair — arm / thigh** is checked (enabled automatically only for this original file name). Generate Automatic Rig + Skin.
+4. Verify the Worker reports **Contact Repair Pilot applied**. A distinct `_WhiskeyPose_ContactRepair_Pilot.fbx` is generated; the source FBX is not overwritten.
+5. Bend each arm in the **Deformation Test**, then compare against Alpha 0.3.6 without repair. Inspect the contact caps at the armpit/hip, UV shading, sleeves and thigh, and re-import the FBX into Blender.
+
+**Safe scope:** This is **not** general-purpose contact or garment segmentation. The Blender Worker requires the exact audited 5,376-vertex / 5,910-face topology, eight individual face witnesses and two known contact boundaries. Any mismatch causes an explicit error without repairing anything. Other characters continue through ordinary SSR when the box is unchecked.
+
+**Repair method:** replace the two 21-face connection strips with two locally capped surfaces and a small upper seam on each side. The result passes closed-manifold and winding checks on the original polygon data (5,380 vertices / 5,958 faces). New cap centers and contact boundaries are assigned *anatomical SSR ownership constraints*: arm bones cannot capture thigh contact vertices and vice versa. Original faces, UV and material data are retained outside the 42 removed faces. This remains an experimental reconstructed surface, not a guaranteed perfect sculpt.
+
+**Validation limit:** polygon connectivity and simulated bone ownership were checked against the actual supplied source in a headless geometry prototype. The exact Blender 3D appearance, skin deformations, UVs and exported FBX have **not** been verified on the artist's Windows/Steam Blender installation. See [Contact Repair Pilot tests](docs/ALPHA_0_3_7_CONTACT_REPAIR_TESTS.md).
+
 ## Alpha 0.3.6 — Direct SSR Region Influence
 
 When SIB cannot reach a long cloth triangle or an awkwardly posed part, use **Skin → Anatomical Region Influence** instead. Choose an anatomical region (Head, Neck, Torso, Left/Right Arm, Left/Right Leg), then the target bone in **Inspect Bone**. Set **Influence Change** and click **+ Increase** or **− Reduce**. All vertices belonging to that SSR region update immediately in the existing Live Skin, without raycasting or modifying individual vertices by hand. If the region contains multiple disconnected geometry pieces, the selector may also offer specific pieces.
