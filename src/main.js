@@ -55,7 +55,7 @@ app.innerHTML = `
       </div>
       <div id="notification" class="notification" role="status" aria-live="polite"></div>
     </section>
-    <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="engine-settings-open" class="worker-config-button" title="Configure External Engines" aria-label="Configure External Engines">⚙</button><button id="retry-worker" title="Check the local export worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
+    <aside class="inspector"><div class="inspector-header"><span>INSPECTOR</span><span id="active-mode">IMPORT</span></div><div id="panel" class="inspector-content" role="region" aria-label="Inspector controls" tabindex="0"></div><div class="inspector-bottom"><div class="worker-row"><span><span id="worker-dot" class="worker-dot"></span> Blender worker</span><button id="engine-settings-open" class="worker-config-button" title="Configure External Engines" aria-label="Configure External Engines">⚙</button><button id="retry-worker" title="Check the local export worker">↻</button><strong id="worker-status">Offline</strong></div></div></aside>
   </div>
   <input id="file-input" type="file" accept=".fbx" hidden />
   <input id="marker-input" type="file" accept=".json,application/json" hidden />

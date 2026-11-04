@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 :root { font-family:'DM Sans',system-ui,sans-serif; color:#e9e8e3; background:#101214; font-synthesis:none; font-size:13px; }
 *{box-sizing:border-box} body{margin:0;min-width:740px} button,select,input{font:inherit}button{cursor:pointer} button:disabled{cursor:not-allowed;opacity:.4}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #e8ad62;outline-offset:2px} .hidden{display:none!important}
-.shell{display:grid;grid-template-columns:250px minmax(450px,1fr) 285px;height:100vh;min-height:590px;overflow:hidden}
+.shell{display:grid;grid-template-columns:250px minmax(450px,1fr) 285px;grid-template-rows:minmax(0,1fr);height:100vh;min-height:0;overflow:hidden}
 .sidebar{background:#171a1c;border-right:1px solid #2a2e30;display:flex;flex-direction:column;padding:25px 15px 17px;gap:0}
 .identity{display:flex;align-items:center;gap:12px;padding:0 9px}.monogram{width:41px;height:41px;border:1px solid #825f39;background:linear-gradient(140deg,#44301b,#211f1c);border-radius:12px;color:#eab474;font:bold 26px 'Space Grotesk';display:flex;align-items:center;justify-content:center;letter-spacing:-4px;padding-right:5px}.monogram span{color:#fff;font-size:22px;align-self:end;margin-bottom:6px}.brand{font-family:'Space Grotesk',sans-serif;font-size:18px;letter-spacing:-.7px;font-weight:700}.subbrand{color:#878d8f;font-size:8px;letter-spacing:2.15px;margin-top:2px;font-weight:700}
 .version{display:flex;gap:8px;align-items:center;color:#d3b389;background:#29251f;border:1px solid #4b3d2c;border-radius:7px;margin:29px 7px 38px;padding:9px 11px;font-size:9px;letter-spacing:1.3px;font-weight:700}.live-dot{width:6px;height:6px;background:#e5aa61;border-radius:50%}.version-note{margin-left:auto;color:#917c61;letter-spacing:.4px;font-size:8px}.section-eyebrow{font-size:9px;color:#727a7d;letter-spacing:1.6px;padding:0 17px 13px;font-weight:700}.workflow{display:flex;flex-direction:column;gap:5px}.step{width:100%;text-align:left;color:#b3b8ba;border:1px solid transparent;display:flex;align-items:center;gap:13px;background:transparent;border-radius:9px;padding:13px 12px}.step:hover{background:#252a2b}.step.active{background:#2b2b28;border-color:#514536;color:#f6d2a0}.step-number{color:#7e8587;font-family:'Space Grotesk';font-size:11px;align-self:flex-start;margin-top:2px}.step.active .step-number{color:#e5ad66}.step strong{display:block;font-size:12px;letter-spacing:.2px}.step small{display:block;font-size:10px;color:#7f8588;margin-top:4px}.step-arrow{margin-left:auto;color:#8d7659;font-size:20px;font-weight:300;opacity:0}.step.active .step-arrow,.step:hover .step-arrow{opacity:1}.sidebar-bottom{margin-top:auto}.side-note{background:#202427;border:1px solid #30363a;border-radius:11px;display:flex;gap:12px;padding:15px 12px}.note-spark{color:#e5ad66;font-size:18px}.side-note strong{font-size:11px}.side-note p{font-size:10px;line-height:1.65;color:#919b9e;margin:6px 0 0}.repo-link{color:#aab2b5;text-decoration:none;font-size:11px;display:block;margin:22px 12px 0}.repo-link:hover{color:#e7b475}
@@ -87,3 +87,20 @@
 
 /* Alpha 0.3.3 SSR diagnostic region counts */
 .ssr-metrics{font-size:10px;line-height:1.7;color:#b5d1c6;background:#1b2223;border-radius:8px;border:1px solid #374443;padding:9px;margin:8px 0;overflow-wrap:anywhere}
+
+/* Inspector usability: scroll long Skin/Deformation Test panels independently
+   from the 3D viewport. Keep the header and Blender worker status visible. */
+.inspector{min-height:0;overflow:hidden}
+.inspector-header,.inspector-bottom{flex-shrink:0}
+.inspector-content{
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior-y:contain;
+  scrollbar-width:thin;
+  scrollbar-color:#566064 #181b1e;
+}
+.inspector-content::-webkit-scrollbar{width:8px}
+.inspector-content::-webkit-scrollbar-track{background:#181b1e}
+.inspector-content::-webkit-scrollbar-thumb{background:#566064;border-radius:8px;border:2px solid #181b1e}
+.inspector-content:focus-visible{outline:2px solid #d3a267;outline-offset:-2px}
