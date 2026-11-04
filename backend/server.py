@@ -164,6 +164,13 @@ class Handler(BaseHTTPRequestHandler):
                     if method not in ('auto', 'proximity', 'envelope', 'smart-auto'):
                         self.reply_json(400, {'error': 'Unsupported weight method.'}); return
                     command = [blender, '--background', '--factory-startup', '--python', str(AUTORIG_SCRIPT), '--', '--input', str(source), '--output', str(target), '--report', str(report), '--method', method, '--markers', str(marker_path)]
+                    repair=payload.get('contactRepair',False)
+                    if type(repair) is not bool:
+                        self.reply_json(400,{'error':'Contact repair flag must be boolean'});return
+                    if repair:
+                        if method!='smart-auto':
+                            self.reply_json(400,{'error':'Contact repair requires Automatic Skin'});return
+                        command.append('--contact-repair')
                     if method == 'envelope':
                         names = ['pelvis','spine','chest','neck','head'] + [f'{segment}.{side}' for side in ('L','R') for segment in ('shoulder','upper_arm','forearm','hand','thigh','shin','foot')]
                         validate_envelopes(payload.get('envelopes'), [{'name':name} for name in names])
