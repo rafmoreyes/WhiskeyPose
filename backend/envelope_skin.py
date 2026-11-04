@@ -5,6 +5,7 @@ influences. Volumes are bound to bone names, never to individual mesh vertices.
 """
 from __future__ import annotations
 from math import isfinite, sqrt
+from smart_regions import head_neck_ownership
 
 SCHEMA = 'whiskeypose-skin-envelopes'
 VERSION = 1
@@ -44,7 +45,7 @@ def distance_segment_squared(point, head, tail):
     return sum((point[i] - head[i] - t * v[i]) ** 2 for i in range(3))
 
 
-def envelope_weights(point, bones, envelopes, height, limit=4):
+def envelope_weights(point, bones, envelopes, height, limit=4, ownership=None):
     """Return ([(bone_name, weight)...], used_nearest_fallback).
 
     Score decreases from the axis to the radius. Rigid envelopes get 100%
@@ -53,12 +54,18 @@ def envelope_weights(point, bones, envelopes, height, limit=4):
     """
     if height <= 0 or limit <= 0:
         raise ValueError('Invalid skin height or influence limit')
+    ownership = ownership if ownership is not None else head_neck_ownership(point,bones,height)
+    if ownership and 'weights' in ownership:
+        return ownership['weights'], False
+    blocked = set(ownership.get('blocked', ())) if ownership else set()
     scores = []
     nearest = (float('inf'), None)
     nearest_enabled = (float('inf'), None)
     rigid = []
     for bone in bones:
         name = bone['name']
+        if name in blocked:
+            continue
         d2 = distance_segment_squared(point, bone['head'], bone['tail'])
         if d2 < nearest[0]:
             nearest = (d2, name)

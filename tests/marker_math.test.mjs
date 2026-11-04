@@ -59,7 +59,8 @@ test('skeleton preview computes 19 named connected bones from the approved marke
  for(let i=0;i<3;i++)assert.ok(Math.abs(byName['upper_arm.L'].head[i]-p['shoulder.L'][i])<1e-9);
  for(let i=0;i<3;i++)assert.ok(Math.abs(byName['upper_arm.L'].tail[i]-p['elbow.L'][i])<1e-9);
  for(let i=0;i<3;i++)assert.ok(Math.abs(byName.neck.head[i]-p.neck[i])<1e-9);
- for(let i=0;i<3;i++)assert.ok(Math.abs(byName.neck.tail[i]-p.chin[i])<1e-9);
+ for(let i=0;i<3;i++)assert.ok(Math.abs(byName.neck.tail[i]-(p.neck[i]*.28+p.chin[i]*.72))<1e-9);
+ assert.deepEqual(byName.head.head,byName.neck.tail);
  for(let i=0;i<3;i++)assert.ok(Math.abs(byName['forearm.R'].tail[i]-p['wrist.R'][i])<1e-9);
  assert.equal(byName['forearm.R'].parent,'upper_arm.R');
  const shifted=structuredClone(p); shifted['shoulder.L'][1]-=.2;

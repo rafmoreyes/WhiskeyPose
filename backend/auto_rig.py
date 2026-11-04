@@ -14,6 +14,7 @@ import bpy
 from rig_math import proximity_weights
 from marker_rig import make_marker_template
 from envelope_skin import validate_envelopes, envelope_weights
+from smart_regions import head_neck_ownership, head_owned_components
 
 
 def arguments():
@@ -98,10 +99,14 @@ def assign_envelopes(mesh, rig, definitions, height, config):
     remove_bone_groups(mesh, definitions)
     groups = {b['name']: mesh.vertex_groups.new(name=b['name']) for b in definitions}
     world = mesh.matrix_world.copy()
+    rest_points = [tuple(world @ vert.co) for vert in mesh.data.vertices]
+    faces = [tuple(poly.vertices) for poly in getattr(mesh.data,'polygons',())]
+    owned = head_owned_components(rest_points,faces,definitions,height)
     fallback_count = 0
-    for vert in mesh.data.vertices:
-        pos = tuple(world @ vert.co)
-        weights, used_fallback = envelope_weights(pos, definitions, config, height)
+    for vert,pos in zip(mesh.data.vertices,rest_points):
+        ownership = ({'zone':'detached-head','weights':[('head',1.)]} if owned[vert.index]
+                     else head_neck_ownership(pos,definitions,height))
+        weights, used_fallback = envelope_weights(pos, definitions, config, height, ownership=ownership)
         if used_fallback:
             fallback_count += 1
         for bone_name, weight in weights:
@@ -173,7 +178,7 @@ def main():
         apply_unit_scale=True,
         mesh_smooth_type='OFF',
     )
-    report = {'version': '0.3.0', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Rig driven by confirmed landmarks; inferred shoulders/ankles/head remain approximate. Inspect the FBX orientation and skin deformations.']}
+    report = {'version': '0.3.2', 'bones': len(definitions), 'meshes': len(meshes), 'weights': methods, 'template': 'confirmed-markers', 'landmarkCount':16, 'skinMode':args.method, 'envelopeCount':len(envelope_config) if envelope_config else 0, 'boneEndpoints':{b['name']:{'head':b['head'],'tail':b['tail']} for b in definitions}, 'warnings': ['Smart head/neck ownership uses anatomical heuristics, not general semantic segmentation. Long hair joined to body geometry and unusual limb poses still need review.']}
     with open(args.report, 'w', encoding='utf-8') as handle:
         json.dump(report, handle)
     print('WhiskeyPose Alpha 0.1 output:', json.dumps(report))

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { distanceSegmentSquared, weightsForDistances } from './envelope_math.js';
+import { headNeckOwnership, headOwnedComponents } from './smart_regions.js';
 
 /** Map FBXLoader's bone names (e.g. forearmR) to WhiskeyPose's forearm.R. */
 const keyOf = name => String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -74,12 +75,22 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
     const segments=makeBoneSegments(mesh.skeleton,names,height);
     const distances=new Float32Array(vertices.count*names.length);
     const rest=segments.map(s=>({head:s.head,tail:s.tail}));
+    const restPoints=[];
     for(let i=0;i<vertices.count;i++){
       p.fromBufferAttribute(vertices,i).applyMatrix4(mesh.bindMatrix);
       const xyz=p.toArray();
+      restPoints.push(xyz);
       for(let j=0;j<rest.length;j++)distances[i*names.length+j]=distanceSegmentSquared(xyz,rest[j].head,rest[j].tail);
     }
-    contexts.push({mesh,geometry,vertices,segments,distances,
+    const faces=[];
+    const index=geometry.getIndex?.();
+    if(index){for(let i=0;i+2<index.count;i+=3)faces.push([index.array[i],index.array[i+1],index.array[i+2]]);}
+    else {for(let i=0;i+2<vertices.count;i+=3)faces.push([i,i+1,i+2]);}
+    const headOwned=headOwnedComponents(restPoints,faces,segments,height);
+    const ownership=restPoints.map((xyz,i)=>headOwned[i]
+      ? {zone:'detached-head',weights:[['head',1]]}
+      : headNeckOwnership(xyz,segments,height));
+    contexts.push({mesh,geometry,vertices,segments,distances,ownership,
       byName:new Map(segments.map(s=>[s.name,s.index])),
       originalMaterial:mesh.material, originalColors:geometry.getAttribute('color'), heatmapMaterial:null,
       skinIndex:null,skinWeight:null,weightForSelected:null});
@@ -94,7 +105,7 @@ export function createLiveSkin(meshes,boneDefinitions,config) {
       const indices=new Uint16Array(vertexCount*4),weights=new Float32Array(vertexCount*4);
       const selectedWeights=new Float32Array(vertexCount);
       for(let i=0;i<vertexCount;i++){
-        const answer=weightsForDistances(names,ctx.distances.subarray(i*nb,(i+1)*nb),configNow,height);
+        const answer=weightsForDistances(names,ctx.distances.subarray(i*nb,(i+1)*nb),configNow,height,4,ctx.ownership[i]);
         if(answer.fallback)outside++;
         for(let j=0;j<answer.weights.length;j++){
           const [name,value]=answer.weights[j];

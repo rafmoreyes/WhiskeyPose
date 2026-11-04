@@ -47,6 +47,8 @@ def make_marker_template(bounds,payload):
     if not groin[2]<chest[2]<neck[2]<chin[2]:
         raise ValueError('Joint order must be Groin below Chest below Neck below Chin')
     pelvis_end=_lerp(groin,chest,.18)
+    # Chin is a reference marker, NOT the head rotation pivot.
+    head_pivot=_lerp(neck,chin,.72)
     head_top=(chin[0],chin[1],max(chin[2]+height*.045,minz+height*.965))
     bones=[]
     def add(name,a,b,parent=None):
@@ -56,8 +58,8 @@ def make_marker_template(bounds,payload):
     add('pelvis',groin,pelvis_end)
     add('spine',pelvis_end,chest,'pelvis')
     add('chest',chest,neck,'spine')
-    add('neck',neck,chin,'chest')
-    add('head',chin,head_top,'neck')
+    add('neck',neck,head_pivot,'chest')
+    add('head',head_pivot,head_top,'neck')
     for side,sign in (('L',1),('R',-1)):
         shoulder,elbow,wrist,knee,heel,toe=(m[f'{part}.{side}'] for part in ('shoulder','elbow','wrist','knee','heel','toe'))
         add(f'shoulder.{side}',neck,shoulder,'chest')

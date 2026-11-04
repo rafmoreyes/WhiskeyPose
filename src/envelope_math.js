@@ -57,11 +57,14 @@ export function validateEnvelopeDraft(data,bones){
 /** Calculate normalized weights from precomputed *squared* distance-to-bone segments.
  * Used when the artist moves a slider; distances need not be recalculated.
  */
-export function weightsForDistances(names,distances,config,height,limit=4){
+export function weightsForDistances(names,distances,config,height,limit=4,ownership=null){
+  if(ownership?.weights)return {weights:ownership.weights,fallback:false};
+  const blocked=new Set(ownership?.blocked||[]);
   let nearest=Infinity,nearestName=null,nearestEnabled=Infinity,enabledName=null;
   const hits=[],rigid=[];
   for(let i=0;i<names.length;i++){
     const name=names[i],d2=distances[i],setting=config.envelopes[name];
+    if(blocked.has(name))continue;
     if(d2<nearest){nearest=d2;nearestName=name;}
     const strength=setting.strength??1;
     if(strength>0 && d2<nearestEnabled){nearestEnabled=d2;enabledName=name;}
@@ -78,7 +81,7 @@ export function weightsForDistances(names,distances,config,height,limit=4){
   const top=hits.slice(0,limit),sum=top.reduce((v,x)=>v+x[0],0);
   return {weights:top.map(([score,name])=>[name,score/sum]),fallback:false};
 }
-export function envelopeWeights(point,bones,data,height){
+export function envelopeWeights(point,bones,data,height,ownership=null){
   const distances=bones.map(b=>distanceSegmentSquared(point,b.head,b.tail));
-  return weightsForDistances(bones.map(b=>b.name),distances,data,height);
+  return weightsForDistances(bones.map(b=>b.name),distances,data,height,4,ownership);
 }

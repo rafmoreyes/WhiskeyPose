@@ -105,3 +105,11 @@ Advanced face rigs, quadrupeds, animation timeline, cloth physics, realtime moca
 - After generation, envelopes can be edited and weights rebuilt from the original FBX.
 - Fallback vertices outside all capsules are counted and reported.
 - Next: mesh-island ownership and exclusions, controlled deformation tests, then live weight feedback.
+
+## Alpha 0.3.2 — Head/Neck Smart Skin Regions
+
+- Head pivot derived from Neck and Chin landmarks (Chin no longer becomes the Head pivot)
+- Protected head, head/neck and neck/chest ownership; shoulders and pectoral excluded from Head/Neck even when envelopes are large
+- Detached head/hair mesh island detection using topology and UV-seam position welding
+- Browser and Blender worker implement matching region constraints; no new packages
+- Next: Alpha 0.3.3 expands region ownership to arms, legs, body, clothing and props

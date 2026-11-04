@@ -18,7 +18,7 @@ app.innerHTML = `
         <div class="monogram">W<span>.</span></div>
         <div><div class="brand">WhiskeyPose</div><div class="subbrand">CHARACTER WORKSPACE</div></div>
       </div>
-      <div class="version"><span class="live-dot"></span> ALPHA 0.3.1a <span class="version-note">DEFORMATION TEST</span></div>
+      <div class="version"><span class="live-dot"></span> ALPHA 0.3.2 <span class="version-note">SMART HEAD REGIONS</span></div>
       <div class="section-eyebrow">WORKFLOW</div>
       <nav id="workflow" class="workflow" aria-label="Workflow">
         <button class="step active" data-tab="import"><span class="step-number">01</span><span><strong>Import</strong><small>Model & diagnostics</small></span><span class="step-arrow">›</span></button>
@@ -475,7 +475,7 @@ function renderPanel() {
     const report=state.rigReport?.weights || [];
     const outside=report.reduce((sum,row)=>sum+(row.fallbackVertices||0),0);
     const total=report.reduce((sum,row)=>sum+(row.totalVertices||0),0);
-    panel.innerHTML = `${sectionTitle('Smart Skin Envelopes', 'ALPHA 0.3.1 LIVE')}
+    panel.innerHTML = `${sectionTitle('Smart Skin Envelopes', 'ALPHA 0.3.2 LIVE')}
       <div class="headline-stat"><strong>${active ? names.length : (s?.skinned ?? '—')}</strong><span>${active?'Bone-owned envelopes':'Skinned meshes'}</span></div>
       ${active ? `
       <label class="field-label" for="skin-method">SKINNING METHOD</label>
@@ -492,7 +492,7 @@ function renderPanel() {
       <label class="envelope-show"><input type="checkbox" id="envelope-show-all" ${state.showAllEnvelopes?'checked':''}/> Show all envelopes</label>
       <label class="envelope-show"><input type="checkbox" id="envelope-heatmap" ${state.showSkinHeatmap?'checked':''}/> Show influence heatmap</label>
       <button class="full-button" id="envelope-reset">↻ Reset selected envelope</button>
-      ${information(state.skinMethod==='envelope' ? 'The selected capsule follows its bone while posing. Radius and Influence Strength update the mesh weights immediately; Blender is only needed to save the FBX.' : 'Legacy Blender Auto Weights uses the same approved skeleton but ignores envelope settings. Select Envelope Skin to apply your radius and ownership choices.')}
+      ${information(state.skinMethod==='envelope' ? 'Smart Head Region now owns skull/head-linked islands; Head/Neck cannot affect shoulders and chest, even with oversized envelopes. Within protected regions, anatomical ownership overrides radius and strength. Other bones keep editable Live Skin envelopes.' : 'Blender Auto Weights does not use Smart Head Region. Select Envelope Skin to enable the anatomical ownership rules.')}
       ${state.liveError ? information('Live skin unavailable: '+escapeHtml(state.liveError)+'. Blender export remains available.') : ''}
       ${!s?.bones ? `<button class="full-button gold" id="envelope-generate" ${state.workerReady && markerTool.getStatus().approved && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Generate Rig + Envelope Skin'}</button>` : state.riggedFile && state.sourceFile && state.savedRigMarkers ? `<button class="full-button gold" id="envelope-rebuild" ${state.workerReady && !state.processing?'':'disabled'}>${state.processing?'Generating…':'Save Edited Skin FBX (no pose reset)'}</button>` : ''}
       ${state.liveSkin ? `<div class="live-status">● LIVE SKIN · Editing in memory, no FBX reload</div><div class="live-summary">Outside-envelope vertices: <strong id="live-outside-count">${state.liveDiagnostics ? `${formatCount(state.liveDiagnostics.outside)} / ${formatCount(state.liveDiagnostics.total)}` : 'computing...'}</strong></div>${skinPoseControls()}${deformationPanel()}<button id="save-pose-skin" class="full-button">Save current pose JSON</button>` : ''}
@@ -500,7 +500,8 @@ function renderPanel() {
       ${report.length && !state.liveSkin ? `<div class="metrics">${metric('Envelope skin',state.rigReport.skinMode==='envelope'?'Used':'Not used')}${metric('Outside-envelope vertices',total?`${formatCount(outside)} / ${formatCount(total)} (${(outside/total*100).toFixed(1)}%)`:'—')}</div>` : ''}
       ${state.skinnedMeshes.length ? `<div class="mesh-list">${state.skinnedMeshes.map(m=>`<div class="mesh-row"><span class="mesh-dot"></span>${escapeHtml(m.name||'Unnamed mesh')}<small>${m.skeleton?.bones?.length||0} bones</small></div>`).join('')}</div>` : ''}
       <button class="full-button" id="skin-wire">${state.wire ? 'Hide wireframe' : 'Show wireframe'}</button>
-      ${information('Skin preview is live. Saving produces an FBX in Rest Pose; use Save current pose JSON separately. Cloth, detached accessories and hair can still receive incorrect bone weights.')}`;
+      ${state.riggedFile && state.rigReport?.version && state.rigReport.version!=='0.3.2' ? information('Older rig detected: Smart Head Pivot requires returning to Edit source markers and generating a new rig from the unrigged FBX. Existing generated skeletons are not silently migrated.') : ''}
+      ${information('Smart Head/Neck Regions are experimental: long hair attached to the body and unusually raised limbs can still need correction. The FBX exports in Rest Pose; save your artistic pose separately as JSON.')}`;
     $('#skin-wire').addEventListener('click', () => {state.wire=!state.wire;$('#toggle-wire').classList.toggle('toggled',state.wire);updateWire();renderPanel();});
     if (active) {
       refreshEnvelopePreview();

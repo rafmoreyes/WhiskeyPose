@@ -35,8 +35,10 @@ globalThis.__WP_TEST_THREE={Vector3,Uint16BufferAttribute:Attribute,Float32Buffe
   MeshStandardMaterial:Material,DoubleSide:2};
 const math=readFileSync(new URL('../src/envelope_math.js',import.meta.url),'utf8');
 const mathUrl='data:text/javascript;base64,'+Buffer.from(math).toString('base64');
+const regions=readFileSync(new URL('../src/smart_regions.js',import.meta.url),'utf8');
+const regionsUrl='data:text/javascript;base64,'+Buffer.from(regions).toString('base64');
 let source=readFileSync(new URL('../src/live_skin.js',import.meta.url),'utf8');
-source=source.replace("import * as THREE from 'three';","const THREE = globalThis.__WP_TEST_THREE;").replace("from './envelope_math.js'",`from '${mathUrl}'`);
+source=source.replace("import * as THREE from 'three';","const THREE = globalThis.__WP_TEST_THREE;").replace("from './envelope_math.js'",`from '${mathUrl}'`).replace("from './smart_regions.js'",`from '${regionsUrl}'`);
 const live=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const names=['pelvis','spine','chest','neck','head'];
 for(const side of ['L','R'])for(const part of ['shoulder','upper_arm','forearm','hand','thigh','shin','foot'])names.push(`${part}.${side}`);

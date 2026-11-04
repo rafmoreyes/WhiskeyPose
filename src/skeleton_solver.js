@@ -27,6 +27,8 @@ export function buildSkeletonTemplate(bounds,payload){
   if(!(groin[1]<chest[1]&&chest[1]<neck[1]&&neck[1]<chin[1]))throw Error('Joint order must be Groin below Chest below Neck below Chin');
   const height=size[1], width=size[0];
   const pelvisEnd=lerp(groin,chest,.18);
+  // Chin is a landmark; head rotation begins at the cranium base.
+  const headPivot=lerp(neck,chin,.72);
   const headTop=[chin[0],Math.max(chin[1]+height*.045,min[1]+height*.965),chin[2]];
   const bones=[];
   function bone(name,head,tail,parent=null){
@@ -36,8 +38,8 @@ export function buildSkeletonTemplate(bounds,payload){
   bone('pelvis',groin,pelvisEnd);
   bone('spine',pelvisEnd,chest,'pelvis');
   bone('chest',chest,neck,'spine');
-  bone('neck',neck,chin,'chest');
-  bone('head',chin,headTop,'neck');
+  bone('neck',neck,headPivot,'chest');
+  bone('head',headPivot,headTop,'neck')
   for(const [side,sign] of [['L',1],['R',-1]]){
     const shoulder=markers[`shoulder.${side}`],elbow=markers[`elbow.${side}`],wrist=markers[`wrist.${side}`],knee=markers[`knee.${side}`],heel=markers[`heel.${side}`],toe=markers[`toe.${side}`];
     bone(`shoulder.${side}`,neck,shoulder,'chest');

@@ -167,3 +167,13 @@ An automatic, reversible deformation diagnostic is available inside **Pose** and
 - **No new dependencies or backend services.** Blender is only needed for the existing rig/skin generation or FBX saving operations.
 
 Test: run `node --test tests/deformation_test.test.mjs` and inspect the animation on a real rigged character in the browser. This build has not yet been visually verified on a real FBX / Windows setup.
+
+## Alpha 0.3.2 — Smart Head / Neck Regions
+
+This release changes the **Head pivot and skin ownership** without adding any external dependency. The Head now begins near the base of the skull (72% from Neck landmark toward Chin), while Chin remains just a landmark. Head is a real bone; Neck remains its parent.
+
+The Envelope Skin engine first assigns head, head-neck and neck-chest ownership, then computes remaining skin from envelopes. This prevents oversized Head/Neck envelopes from pulling shoulder or pectoral vertices. Detached hair/headpiece islands may follow Head automatically, including parts in a combined mesh. The same decisions are applied in Three.js Live Skin and the Blender FBX worker.
+
+**Important:** After updating, reimport the **original unrigged FBX**, place and approve 16 markers and generate a fresh rig to receive the new Head pivot. Existing Alpha 0.3.1 rigs are not silently migrated. Use Deformation Test sections Head and Neck separately, then inspect shoulder weights and exported FBX.
+
+This is an anatomical heuristic, not fully automatic semantic parsing; elaborate fused hair, complex shoulder cloth and nonstandard rest poses may still require improvement in Alpha 0.3.3. Read [docs/ALPHA_0_3_2_SMART_HEAD_TESTS.md](docs/ALPHA_0_3_2_SMART_HEAD_TESTS.md).
